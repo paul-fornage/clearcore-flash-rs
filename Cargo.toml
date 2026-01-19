@@ -1,0 +1,15 @@
+[package]
+name = "clearcore-flash-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+iced = { version = "0.14", features = ["tokio", "advanced"] }
+iced_selection = "0.4"
+serialport = "4.6"
+log = "0.4"
+env_logger = "0.11"
+anyhow = "1.0"
+tokio = { version = "1", features = ["full"] }
+rfd = "0.15"
+chrono = "0.4"
