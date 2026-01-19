@@ -15,6 +15,7 @@ pub struct App {
     serial_port: Option<Box<dyn SerialPort>>,
     logs: Vec<LogEntry>,
     toast: Option<Toast>,
+    auto_scroll: bool,
 }
 
 /// Application messages
@@ -23,7 +24,7 @@ pub enum Message {
     // Main screen
     SelectFile,
     FileSelected(Option<PathBuf>),
-    ToggleMonitorAfterUpload(bool),
+    SetMonitorAfterUpload(bool),
     StartMonitoring,
 
     // Upload screen
@@ -34,6 +35,8 @@ pub enum Message {
     SerialData(Vec<u8>),
     SerialError(String),
     BackToMain,
+    
+    SetAutoScroll(bool),
 
     // Toast
     CloseToast,
@@ -52,6 +55,7 @@ impl App {
                 serial_port: None,
                 logs: Vec::new(),
                 toast: None,
+                auto_scroll: true,
             },
             Task::none(),
         )
@@ -105,7 +109,7 @@ impl App {
                 log::info!("File selection cancelled");
             }
 
-            Message::ToggleMonitorAfterUpload(enabled) => {
+            Message::SetMonitorAfterUpload(enabled) => {
                 self.monitor_after_upload = enabled;
             }
 
@@ -180,6 +184,9 @@ impl App {
 
             Message::Tick => {
                 // Handled by serial reading task
+            }
+            Message::SetAutoScroll(new_value) => {
+                self.auto_scroll = new_value;
             }
         }
 
