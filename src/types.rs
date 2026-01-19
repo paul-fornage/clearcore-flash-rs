@@ -1,11 +1,13 @@
 use std::path::PathBuf;
+use serialport::SerialPort;
+use crate::ui::monitor_screen::MonitorState;
 
 /// Main application screens
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub enum AppScreen {
     Main,
     Upload(UploadState),
-    Monitor,
+    Monitor(MonitorState),
 }
 
 /// Toast notification
@@ -62,7 +64,7 @@ pub enum UploadProgress {
 }
 
 /// Serial port configuration for ClearCore
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SerialConfig {
     pub vendor_id: u16,
     pub product_id: u16,
@@ -80,7 +82,7 @@ impl Default for SerialConfig {
 }
 
 /// Log entry for displaying serial output
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LogEntry {
     pub timestamp: String,
     pub message: String,
@@ -95,3 +97,4 @@ impl LogEntry {
         }
     }
 }
+

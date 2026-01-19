@@ -1,10 +1,18 @@
-use iced::widget::{button, checkbox, column, container, row, scrollable, stack, text, Space};
-use iced::{alignment, Border, Color, Element, Length, Theme};
-use iced_selection::text as selectable_text;
+use iced::widget::{button, checkbox, column, container, row, text, Space};
+use iced::{Element, Length, Task, Theme};
 
-use crate::types::{LogEntry, Toast, ToastLevel, UploadProgress};
-use crate::Message;
+use crate::{ui, Message};
+use crate::app::{upload_firmware, App};
+use crate::types::{AppScreen, LogEntry, Toast, UploadProgress, UploadState};
+use crate::ui::monitor_screen::MonitorState;
 
+#[derive(Debug, Clone)]
+pub enum MainScreenMessage {
+    SelectFile,
+    FileSelected(Option<std::path::PathBuf>),
+    SetMonitorAfterUpload(bool),
+    StartMonitoring,
+}
 
 /// Render the main screen with upload and monitor buttons
 pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
@@ -22,14 +30,14 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
                     .width(Length::Fill)
                     .center()
             )
-            .on_press(Message::SelectFile)
+            .on_press(Message::MainScreen(MainScreenMessage::SelectFile))
             .padding(16)
             .width(Length::Fixed(200.0)),
         ]
         .spacing(10),
         checkbox(monitor_after_upload)
             .label("Monitor after upload")
-            .on_toggle(Message::SetMonitorAfterUpload)
+            .on_toggle(|enabled| Message::MainScreen(MainScreenMessage::SetMonitorAfterUpload(enabled)))
             .size(16),
     ]
         .spacing(12);
@@ -40,7 +48,7 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
             .width(Length::Fill)
             .center()
     )
-        .on_press(Message::StartMonitoring)
+        .on_press(Message::MainScreen(MainScreenMessage::StartMonitoring))
         .padding(16)
         .width(Length::Fixed(200.0));
 
@@ -56,4 +64,62 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
         .center_x(Length::Fill)
         .center_y(Length::Fill)
         .into()
+}
+
+impl App{
+    
+    pub fn handle_main_screen_message(&mut self, msg: MainScreenMessage) -> Task<Message> {
+        match msg {
+            MainScreenMessage::SelectFile => {
+                return Task::perform(
+                    async {
+                        rfd::AsyncFileDialog::new()
+                            .add_filter("Binary Files", &["bin"])
+                            .pick_file()
+                            .await
+                            .map(|handle| handle.path().to_path_buf())
+                    },
+                    |path| Message::MainScreen(MainScreenMessage::FileSelected(path)),
+                );
+            }
+
+            MainScreenMessage::FileSelected(Some(path)) => {
+                log::info!("Selected file: {:?}", path);
+
+                self.screen = AppScreen::Upload(UploadState {
+                    file_path: path.clone(),
+                    progress: UploadProgress::Preparing,
+                    monitor_after: self.monitor_after_upload,
+                });
+
+                // Start the upload process
+                return Task::perform(
+                    upload_firmware(path),
+                    |_| Message::UploadScreen(ui::UploadScreenMessage::UploadProgress(UploadProgress::Complete)),
+                );
+            }
+
+            MainScreenMessage::FileSelected(None) => {
+                log::info!("File selection cancelled");
+            }
+
+            MainScreenMessage::SetMonitorAfterUpload(enabled) => {
+                self.monitor_after_upload = enabled;
+            }
+
+            MainScreenMessage::StartMonitoring => {
+                match self.open_monitor() {
+                    Ok(_) => {
+                        self.screen = AppScreen::Monitor(MonitorState::default());
+                        return self.start_serial_reading();
+                    }
+                    Err(e) => {
+                        log::error!("Failed to start monitoring: {}", e);
+                        self.toast = Some(Toast::error(e.to_string()));
+                    }
+                }
+            }
+        }
+        Task::none()
+    }
 }

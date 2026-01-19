@@ -1,16 +1,19 @@
-
-use iced::widget::{button, checkbox, column, container, row, scrollable, stack, text, Space};
-use iced::{alignment, Border, Color, Element, Length, Theme};
+use std::time::Duration;
+use iced::widget::{button, column, container, scrollable, text, Space};
+use iced::{Element, Length, Task, Theme};
 use iced_selection::text as selectable_text;
-
-use crate::types::{LogEntry, Toast, ToastLevel, UploadProgress};
+use crate::app::App;
+use crate::types::{AppScreen, LogEntry, UploadProgress};
 use crate::Message;
+use crate::ui::MainScreenMessage;
 
-
-
+#[derive(Debug, Clone)]
+pub enum UploadScreenMessage {
+    UploadProgress(UploadProgress),
+}
 
 /// Render the upload screen with progress and logs
-pub fn upload_screen(progress: &UploadProgress, logs: &[LogEntry]) -> Element<'static, Message> {
+pub fn upload_screen(progress: &UploadProgress) -> Element<'static, Message> {
     let title = text("Uploading Firmware")
         .size(24)
         .style(|theme: &Theme| text::Style {
@@ -33,16 +36,11 @@ pub fn upload_screen(progress: &UploadProgress, logs: &[LogEntry]) -> Element<'s
                 color: Some(theme.palette().danger),
             }),
     };
-
-    let log_text = logs
-        .iter()
-        .map(|entry| format!("[{}] {}", entry.timestamp, entry.message))
-        .collect::<Vec<_>>()
-        .join("\n");
+    
 
     let log_view = scrollable(
         container(
-            selectable_text(log_text)
+            selectable_text("log_text")
                 .font(iced::Font::MONOSPACE)
                 .size(14)
         )
@@ -76,4 +74,34 @@ pub fn upload_screen(progress: &UploadProgress, logs: &[LogEntry]) -> Element<'s
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
+}
+
+
+impl App{
+    pub fn handle_upload_screen_message(&mut self, msg: UploadScreenMessage) -> Task<Message> {
+        match msg {
+            UploadScreenMessage::UploadProgress(progress) => {
+                if let AppScreen::Upload(ref mut state) = self.screen {
+                    let monitor_after = state.monitor_after;
+                    state.progress = progress.clone();
+
+                    if let UploadProgress::Complete = progress {
+
+                        if monitor_after {
+                            // Transition to monitor screen
+                            return Task::perform(
+                                async {
+                                    tokio::time::sleep(Duration::from_secs(1)).await;
+                                },
+                                |_| Message::MainScreen(MainScreenMessage::StartMonitoring),
+                            );
+                        }
+                    } else if let UploadProgress::Failed(ref err) = progress {
+                        log::error!("Upload failed: {}", err);
+                    }
+                }
+            }
+        }
+        Task::none()
+    }
 }

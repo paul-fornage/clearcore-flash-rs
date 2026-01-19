@@ -9,39 +9,27 @@ use crate::ui;
 
 /// Main application state
 pub struct App {
-    screen: AppScreen,
-    monitor_after_upload: bool,
-    serial_config: SerialConfig,
-    serial_port: Option<Box<dyn SerialPort>>,
-    logs: Vec<LogEntry>,
-    toast: Option<Toast>,
-    auto_scroll: bool,
+    pub screen: AppScreen,
+    pub monitor_after_upload: bool,
+    
+    pub toast: Option<Toast>,
 }
 
 /// Application messages
 #[derive(Debug, Clone)]
 pub enum Message {
     // Main screen
-    SelectFile,
-    FileSelected(Option<PathBuf>),
-    SetMonitorAfterUpload(bool),
-    StartMonitoring,
+    MainScreen(ui::main_screen::MainScreenMessage),
 
     // Upload screen
-    UploadProgress(UploadProgress),
-    UploadLog(String),
+    UploadScreen(ui::upload_screen::UploadScreenMessage),
 
     // Monitor screen
-    SerialData(Vec<u8>),
-    SerialError(String),
+    MonitorScreen(ui::monitor_screen::MonitorScreenMessage),
+
+    // Global
     BackToMain,
-    
-    SetAutoScroll(bool),
-
-    // Toast
     CloseToast,
-
-    // Periodic tick for reading serial data
     Tick,
 }
 
@@ -51,11 +39,7 @@ impl App {
             Self {
                 screen: AppScreen::Main,
                 monitor_after_upload: false,
-                serial_config: SerialConfig::default(),
-                serial_port: None,
-                logs: Vec::new(),
                 toast: None,
-                auto_scroll: true,
             },
             Task::none(),
         )
@@ -65,116 +49,27 @@ impl App {
         match self.screen {
             AppScreen::Main => "ClearCore Flasher".to_string(),
             AppScreen::Upload(_) => "ClearCore Flasher - Uploading".to_string(),
-            AppScreen::Monitor => "ClearCore Flasher - Monitor".to_string(),
+            AppScreen::Monitor(_) => "ClearCore Flasher - Monitor".to_string(),
         }
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::SelectFile => {
-                return Task::perform(
-                    async {
-                        rfd::AsyncFileDialog::new()
-                            .add_filter("Binary Files", &["bin"])
-                            .pick_file()
-                            .await
-                            .map(|handle| handle.path().to_path_buf())
-                    },
-                    Message::FileSelected,
-                );
+            Message::MainScreen(msg) => {
+                return self.handle_main_screen_message(msg);
             }
 
-            Message::FileSelected(Some(path)) => {
-                log::info!("Selected file: {:?}", path);
-                self.logs.clear();
-                self.logs.push(LogEntry::new(format!(
-                    "Selected file: {}",
-                    path.display()
-                )));
-
-                self.screen = AppScreen::Upload(UploadState {
-                    file_path: path.clone(),
-                    progress: UploadProgress::Preparing,
-                    monitor_after: self.monitor_after_upload,
-                });
-
-                // Start the upload process
-                return Task::perform(
-                    upload_firmware(path),
-                    |_| Message::UploadProgress(UploadProgress::Complete),
-                );
+            Message::UploadScreen(msg) => {
+                return self.handle_upload_screen_message(msg);
             }
 
-            Message::FileSelected(None) => {
-                log::info!("File selection cancelled");
-            }
-
-            Message::SetMonitorAfterUpload(enabled) => {
-                self.monitor_after_upload = enabled;
-            }
-
-            Message::StartMonitoring => {
-                self.logs.clear();
-                match self.open_monitor() {
-                    Ok(_) => {
-                        self.screen = AppScreen::Monitor;
-                        return self.start_serial_reading();
-                    }
-                    Err(e) => {
-                        log::error!("Failed to start monitoring: {}", e);
-                        self.toast = Some(Toast::error(e.to_string()));
-
-                    }
-                }
-            }
-
-            Message::UploadProgress(progress) => {
-                if let AppScreen::Upload(ref mut state) = self.screen {
-                    let monitor_after = state.monitor_after;
-                    state.progress = progress.clone();
-
-                    if let UploadProgress::Complete = progress {
-                        self.logs.push(LogEntry::new("Upload complete!".to_string()));
-
-                        if monitor_after {
-                            // Transition to monitor screen
-                            return Task::perform(
-                                async {
-                                    tokio::time::sleep(Duration::from_secs(1)).await;
-                                },
-                                |_| Message::StartMonitoring,
-                            );
-                        }
-                    } else if let UploadProgress::Failed(ref err) = progress {
-                        self.logs.push(LogEntry::new(format!("Upload failed: {}", err)));
-                    }
-                }
-            }
-
-            Message::UploadLog(log_msg) => {
-                self.logs.push(LogEntry::new(log_msg));
-            }
-
-            Message::SerialData(data) => {
-                if let Ok(text) = String::from_utf8(data) {
-                    for line in text.lines() {
-                        self.logs.push(LogEntry::new(line.to_string()));
-                    }
-                }
-                return self.start_serial_reading();
-            }
-
-            Message::SerialError(err) => {
-                self.toast = Some(Toast::error(err.clone()));
-                log::error!("Serial error: {}", err);
-                self.serial_port = None;
+            Message::MonitorScreen(msg) => {
+                return self.handle_monitor_screen_message(msg);
             }
 
             Message::BackToMain => {
                 // Close serial port if open
-                self.serial_port = None;
                 self.screen = AppScreen::Main;
-                self.logs.clear();
                 self.toast = None;
             }
 
@@ -185,9 +80,6 @@ impl App {
             Message::Tick => {
                 // Handled by serial reading task
             }
-            Message::SetAutoScroll(new_value) => {
-                self.auto_scroll = new_value;
-            }
         }
 
         Task::none()
@@ -196,8 +88,8 @@ impl App {
     pub fn view(&self) -> Element<Message> {
         let view = match &self.screen {
             AppScreen::Main => ui::main_screen(self.monitor_after_upload),
-            AppScreen::Upload(state) => ui::upload_screen(&state.progress, &self.logs),
-            AppScreen::Monitor => ui::monitor_screen(&self.logs),
+            AppScreen::Upload(state) => ui::upload_screen(&state.progress),
+            AppScreen::Monitor(monitor_state) => ui::monitor_screen(monitor_state),
         };
 
         ui::with_toast(view, self.toast.as_ref())
@@ -207,7 +99,7 @@ impl App {
         Theme::TokyoNightStorm
     }
 
-    fn open_monitor(&mut self) -> anyhow::Result<()> {
+    pub(crate) fn open_monitor(&mut self) -> anyhow::Result<()> {
         let port_name = serial::find_clearcore_port(&self.serial_config)?;
         let port = serial::open_serial_port(&port_name, &self.serial_config)?;
         self.serial_port = Some(port);
@@ -215,15 +107,15 @@ impl App {
         Ok(())
     }
 
-    fn start_serial_reading(&mut self) -> Task<Message> {
+    pub(crate) fn start_serial_reading(&mut self) -> Task<Message> {
         if let Some(ref mut port) = self.serial_port {
             let mut port_clone = port.try_clone().expect("Failed to clone serial port");
             return Task::perform(
                 async move {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     match serial::read_serial_data(&mut port_clone) {
-                        Ok(data) => Message::SerialData(data),
-                        Err(e) => Message::SerialError(e.to_string()),
+                        Ok(data) => Message::MonitorScreen(ui::MonitorScreenMessage::SerialData(data)),
+                        Err(e) => Message::MonitorScreen(ui::MonitorScreenMessage::SerialError(e.to_string())),
                     }
                 },
                 |msg| msg,
@@ -234,7 +126,7 @@ impl App {
 }
 
 /// Upload firmware to ClearCore (placeholder)
-async fn upload_firmware(_path: PathBuf) -> anyhow::Result<()> {
+pub async fn upload_firmware(_path: PathBuf) -> anyhow::Result<()> {
     // Simulate upload process
     tokio::time::sleep(Duration::from_secs(2)).await;
 
