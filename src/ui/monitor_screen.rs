@@ -11,7 +11,7 @@ static SCROLLABLE_ID: OnceLock<widget::Id> = OnceLock::new();
 
 #[derive(Debug, Clone)]
 pub enum MonitorScreenMessage {
-    SerialData(Vec<u8>),
+    SerialData(String),
     SerialError(String),
     SetAutoScroll(bool),
 }
@@ -22,6 +22,8 @@ pub struct MonitorState{
     pub serial_port: Option<Box<dyn SerialPort>>,
     pub logs: Vec<LogEntry>,
     pub auto_scroll: bool,
+    pub is_connecting: bool,
+    pub is_connected: bool,
 }
 
 impl Default for MonitorState {
@@ -31,6 +33,8 @@ impl Default for MonitorState {
             serial_port: None,
             logs: Vec::new(),
             auto_scroll: true,
+            is_connecting: true,
+            is_connected: false,
         }
     }
 }
@@ -104,19 +108,19 @@ impl App{
         match self.screen{
             AppScreen::Monitor(ref mut monitor_state) => {
                 match msg {
-                    MonitorScreenMessage::SerialData(data) => {
-                        if let Ok(text) = String::from_utf8(data) {
-                            for line in text.lines() {
-                                monitor_state.logs.push(LogEntry::new(line.to_string()));
-                            }
+                    MonitorScreenMessage::SerialData(line) => {
+                        // Add the line to logs (already contains newline)
+                        let trimmed = line.trim_end();
+                        if !trimmed.is_empty() {
+                            monitor_state.logs.push(LogEntry::new(trimmed.to_string()));
                         }
-                        return self.start_serial_reading();
                     }
 
                     MonitorScreenMessage::SerialError(err) => {
-                        self.toast = Some(Toast::error(err.clone()));
+                        self.toast = Some(Toast::error(format!("Serial error: {}", err)));
                         log::error!("Serial error: {}", err);
-                        monitor_state.serial_port = None;
+                        monitor_state.is_connected = false;
+                        // Stay on monitor screen but stop receiving data
                     }
 
                     MonitorScreenMessage::SetAutoScroll(new_value) => {

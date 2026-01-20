@@ -4,8 +4,6 @@ use std::io::Read;
 use std::time::Duration;
 use iced::futures::SinkExt;
 use iced::Subscription;
-use iced::futures::channel::mpsc;
-use iced::futures::Stream;
 use iced::stream;
 use crate::types::SerialConfig;
 
@@ -14,84 +12,71 @@ use crate::types::SerialConfig;
 
 #[derive(Debug, Clone)]
 pub enum SerialEvent {
-    Connected(String),
-    Data(Vec<u8>),
+    Data(String),
     Error(String),
-    Disconnected,
 }
 
+/// Synchronously connect to the ClearCore serial port
+pub fn connect_to_clearcore(config: &SerialConfig) -> Result<Box<dyn SerialPort>> {
+    let port_name = find_clearcore_port(config)?;
+    let port = open_serial_port(&port_name, config)?;
+    Ok(port)
+}
 
-pub fn listen(config: SerialConfig) -> Subscription<SerialEvent> {
-    Subscription::run(iced::stream::channel(
-        100,
-        // We must tell the compiler exactly what type Iced is giving us here:
-        move |mut output: iced::futures::channel::mpsc::Sender<SerialEvent>| async move {
+/// Connect to and listen to the ClearCore serial port
+pub fn listen() -> Subscription<SerialEvent> {
+    Subscription::run(connect_and_listen)
+}
 
-            // 1. Create a BRIDGE channel (Tokio)
-            // The blocking thread will send to THIS sender.
-            let (sender, mut receiver) = tokio::sync::mpsc::channel(100);
+fn connect_and_listen() -> impl iced::futures::Stream<Item = SerialEvent> {
+    stream::channel(100, |mut output: iced::futures::channel::mpsc::Sender<SerialEvent>| async move {
+        use iced::futures::SinkExt;
 
-            // 2. Spawn the Blocking I/O Thread
-            // We move the 'sender' into the thread so it can talk back to us.
-            std::thread::spawn(move || {
-                loop {
-                    // --- Connection Logic ---
-                    let port_name = match find_clearcore_port(&config) {
-                        Ok(name) => name,
-                        Err(_) => {
-                            // Retry wait
-                            std::thread::sleep(Duration::from_secs(1));
-                            continue;
-                        }
-                    };
+        // Connect to the serial port
+        let config = SerialConfig::default();
+        let mut port = match connect_to_clearcore(&config) {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = output.send(SerialEvent::Error(e.to_string())).await;
+                return;
+            }
+        };
 
-                    let mut port = match open_serial_port(&port_name, &config) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            let _ = sender.blocking_send(SerialEvent::Error(e.to_string()));
-                            std::thread::sleep(Duration::from_secs(1));
-                            continue;
-                        }
-                    };
+        // Run blocking I/O in spawn_blocking
+        let _ = tokio::task::spawn_blocking(move || {
+            let mut buffer = [0u8; 4096];
+            let mut line_buffer = String::new();
 
-                    if sender.blocking_send(SerialEvent::Connected(port_name)).is_err() { break; }
+            loop {
+                match port.read(&mut buffer) {
+                    Ok(n) if n > 0 => {
+                        // Convert bytes to string and accumulate
+                        if let Ok(text) = String::from_utf8(buffer[..n].to_vec()) {
+                            line_buffer.push_str(&text);
 
-                    // --- Read Loop ---
-                    let mut buffer = [0u8; 4096];
-                    loop {
-                        match port.read(&mut buffer) {
-                            Ok(n) if n > 0 => {
-                                if sender.blocking_send(SerialEvent::Data(buffer[..n].to_vec())).is_err() {
-                                    break; // Channel closed (UI stopped listening)
+                            // Send complete lines
+                            while let Some(newline_pos) = line_buffer.find('\n') {
+                                let line = line_buffer[..=newline_pos].to_string();
+                                // Use blocking send within the blocking task
+                                if iced::futures::executor::block_on(output.send(SerialEvent::Data(line))).is_err() {
+                                    return; // Channel closed
                                 }
-                            }
-                            Ok(_) => {}
-                            Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {
-                                // Timeout is GOOD. It lets us check if the sender is closed.
-                                if sender.is_closed() { break; }
-                            }
-                            Err(e) => {
-                                let _ = sender.blocking_send(SerialEvent::Error(e.to_string()));
-                                break;
+                                line_buffer = line_buffer[newline_pos + 1..].to_string();
                             }
                         }
                     }
-
-                    let _ = sender.blocking_send(SerialEvent::Disconnected);
-
-                    if sender.is_closed() { break; }
-                    std::thread::sleep(Duration::from_secs(1));
+                    Ok(_) => {}
+                    Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                        // Continue on timeout
+                    }
+                    Err(e) => {
+                        let _ = iced::futures::executor::block_on(output.send(SerialEvent::Error(e.to_string())));
+                        break;
+                    }
                 }
-            });
-
-            // 3. Bridge Loop (Async)
-            // We receive from the thread (Tokio) and forward to Iced (Output)
-            while let Some(event) = receiver.recv().await {
-                // This .send() requires 'use iced::futures::SinkExt;'
-                let _ = output.send(event).await;
             }
-        },
-    ))
+        }).await;
+    })
 }
 
 

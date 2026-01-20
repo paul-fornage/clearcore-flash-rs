@@ -11,7 +11,6 @@ use crate::ui;
 pub struct App {
     pub screen: AppScreen,
     pub monitor_after_upload: bool,
-
     pub toast: Option<Toast>,
 }
 
@@ -86,13 +85,15 @@ impl App {
     
     pub fn subscription(&self) -> Subscription<Message> {
         match &self.screen {
-            AppScreen::Monitor(state) => {
-                serial::listen(state.serial_config.clone())
+            AppScreen::Monitor(state) if state.is_connecting || state.is_connected => {
+                serial::listen()
                     .map(|event| match event {
-                        serial::SerialEvent::Data(data) => Message::MonitorScreen(ui::MonitorScreenMessage::SerialData(data)),
-                        serial::SerialEvent::Error(e) => Message::MonitorScreen(ui::MonitorScreenMessage::SerialError(e)),
-                        serial::SerialEvent::Connected(port) => Message::MonitorScreen(ui::MonitorScreenMessage::SerialData(format!("Connected to {}", port).into_bytes())),
-                        serial::SerialEvent::Disconnected => Message::MonitorScreen(ui::MonitorScreenMessage::SerialData("Disconnected".to_string().into_bytes())),
+                        serial::SerialEvent::Data(line) => {
+                            Message::MonitorScreen(ui::MonitorScreenMessage::SerialData(line))
+                        }
+                        serial::SerialEvent::Error(e) => {
+                            Message::MonitorScreen(ui::MonitorScreenMessage::SerialError(e))
+                        }
                     })
             }
             _ => Subscription::none(),

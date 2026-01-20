@@ -1,9 +1,9 @@
 use iced::widget::{button, checkbox, column, container, row, text, Space};
 use iced::{Element, Length, Task, Theme};
 
-use crate::{ui, Message};
+use crate::{serial, ui, Message};
 use crate::app::{upload_firmware, App};
-use crate::types::{AppScreen, LogEntry, Toast, UploadProgress, UploadState};
+use crate::types::{AppScreen, LogEntry, SerialConfig, Toast, UploadProgress, UploadState};
 use crate::ui::monitor_screen::MonitorState;
 
 #[derive(Debug, Clone)]
@@ -12,6 +12,8 @@ pub enum MainScreenMessage {
     FileSelected(Option<std::path::PathBuf>),
     SetMonitorAfterUpload(bool),
     StartMonitoring,
+    MonitorConnected,
+    MonitorConnectionFailed(String),
 }
 
 /// Render the main screen with upload and monitor buttons
@@ -108,16 +110,17 @@ impl App{
             }
 
             MainScreenMessage::StartMonitoring => {
-                match self.open_monitor() {
-                    Ok(_) => {
-                        self.screen = AppScreen::Monitor(MonitorState::default());
-                        return self.start_serial_reading();
-                    }
-                    Err(e) => {
-                        log::error!("Failed to start monitoring: {}", e);
-                        self.toast = Some(Toast::error(e.to_string()));
-                    }
-                }
+                log::info!("Starting serial monitor...");
+                self.toast = Some(Toast::info("Connecting...".to_string()));
+                self.screen = AppScreen::Monitor(MonitorState::default());
+            }
+
+            MainScreenMessage::MonitorConnected => {
+                // Not used anymore
+            }
+
+            MainScreenMessage::MonitorConnectionFailed(_e) => {
+                // Not used anymore
             }
         }
         Task::none()
