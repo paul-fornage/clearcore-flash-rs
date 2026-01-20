@@ -1,4 +1,4 @@
-use iced::{Element, Task, Theme};
+use iced::{Element, Task, Theme, Subscription};
 use serialport::SerialPort;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -11,7 +11,7 @@ use crate::ui;
 pub struct App {
     pub screen: AppScreen,
     pub monitor_after_upload: bool,
-    
+
     pub toast: Option<Toast>,
 }
 
@@ -68,7 +68,6 @@ impl App {
             }
 
             Message::BackToMain => {
-                // Close serial port if open
                 self.screen = AppScreen::Main;
                 self.toast = None;
             }
@@ -78,11 +77,26 @@ impl App {
             }
 
             Message::Tick => {
-                // Handled by serial reading task
+                // Handled by subscription now
             }
         }
 
         Task::none()
+    }
+    
+    pub fn subscription(&self) -> Subscription<Message> {
+        match &self.screen {
+            AppScreen::Monitor(state) => {
+                serial::listen(state.serial_config.clone())
+                    .map(|event| match event {
+                        serial::SerialEvent::Data(data) => Message::MonitorScreen(ui::MonitorScreenMessage::SerialData(data)),
+                        serial::SerialEvent::Error(e) => Message::MonitorScreen(ui::MonitorScreenMessage::SerialError(e)),
+                        serial::SerialEvent::Connected(port) => Message::MonitorScreen(ui::MonitorScreenMessage::SerialData(format!("Connected to {}", port).into_bytes())),
+                        serial::SerialEvent::Disconnected => Message::MonitorScreen(ui::MonitorScreenMessage::SerialData("Disconnected".to_string().into_bytes())),
+                    })
+            }
+            _ => Subscription::none(),
+        }
     }
 
     pub fn view(&self) -> Element<Message> {
@@ -99,30 +113,7 @@ impl App {
         Theme::TokyoNightStorm
     }
 
-    pub(crate) fn open_monitor(&mut self) -> anyhow::Result<()> {
-        let port_name = serial::find_clearcore_port(&self.serial_config)?;
-        let port = serial::open_serial_port(&port_name, &self.serial_config)?;
-        self.serial_port = Some(port);
-        self.logs.push(LogEntry::new(format!("Connected to {}", port_name)));
-        Ok(())
-    }
-
-    pub(crate) fn start_serial_reading(&mut self) -> Task<Message> {
-        if let Some(ref mut port) = self.serial_port {
-            let mut port_clone = port.try_clone().expect("Failed to clone serial port");
-            return Task::perform(
-                async move {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                    match serial::read_serial_data(&mut port_clone) {
-                        Ok(data) => Message::MonitorScreen(ui::MonitorScreenMessage::SerialData(data)),
-                        Err(e) => Message::MonitorScreen(ui::MonitorScreenMessage::SerialError(e.to_string())),
-                    }
-                },
-                |msg| msg,
-            );
-        }
-        Task::none()
-    }
+    
 }
 
 /// Upload firmware to ClearCore (placeholder)
