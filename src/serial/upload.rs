@@ -1,5 +1,5 @@
 use std::ffi::{CStr, CString};
-use std::fmt::Display;
+use std::fmt::{Display, Formatter};
 use std::os::raw::c_char;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -63,6 +63,7 @@ macro_rules! log_send_blocking {
 pub enum UploadEvent {
     Log(LogMsg),
     Error(String),
+    ProgressBarUpdate(ProgressBar),
     Success,
 }
 impl UploadEvent {
@@ -72,12 +73,34 @@ impl UploadEvent {
 }
 
 /// Configuration passed into the subscription
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Hash)]
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub struct UploadConfig {
     pub file_path: PathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressBar{
+    pub title: String,
+    pub current: u32,
+    pub total: u32,
+}
+impl ProgressBar{
+    pub fn loading_bar_string(&self) -> String{
+        const PROGRESS_BAR_WIDTH: usize = 32;
+        let mut progress = self.current as f64 / self.total as f64;
+        if progress < 0.0 { progress = 0.0; }
+        if progress > 1.0 { progress = 1.0; }
+        let percent = progress * 100.0;
+        let progress_bar_len = (progress * PROGRESS_BAR_WIDTH as f64).round() as usize;
+
+        let mut progress_bar: [u8; PROGRESS_BAR_WIDTH] = [b' '; PROGRESS_BAR_WIDTH];
+        progress_bar[..progress_bar_len].fill(b'=');
+        // Safety: progress_bar is initialized with '=' and ' '
+        let progress_str = str::from_utf8(&progress_bar).unwrap();
+
+        format!("[{progress_str}] {percent:>6.2}% ({}/{})", self.current, self.total)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct LogMsg {
@@ -85,7 +108,7 @@ pub struct LogMsg {
     pub log_type: LogMsgType,
 }
 impl Display for LogMsg {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if matches!(self.log_type, LogMsgType::BossaNative) {
             write!(f, "{}", self.message)
         } else {
@@ -173,7 +196,6 @@ async fn execute_upload_sequence(output: &mut mpsc::Sender<UploadEvent>, config:
     }
 
 
-
     let _serial_port_info = timeout(
         Duration::from_secs(10), wait_for_serial_port(UsbId::CLEARCORE_SERIAL)
     ).await??;
@@ -238,8 +260,12 @@ fn upload_firmware_blocking(output: &tokio::sync::mpsc::UnboundedSender<UploadEv
     log_send_blocking!(output, Debug, "Device created successfully");
 
     // Create observer for progress callbacks
-    let observer_callback = bossa::ObserverCallback(observer_fn);
-    let mut observer = unsafe { bossa::lib::new_bossa_observer(observer_callback) };
+    let log_observer = bossa::ObserverCallback(log_observer_fn);
+    let prog_observer_callback = bossa::ProgressCallback(prog_observer_fn);
+    let mut observer = unsafe { bossa::lib::new_bossa_observer_with_progress(log_observer, prog_observer_callback) };
+    if observer.is_null() {
+        anyhow::bail!("Failed to create observer");
+    }
     log_send_blocking!(output, Debug, "Observer created successfully");
 
     // Create flasher
@@ -300,39 +326,32 @@ fn upload_firmware_blocking(output: &tokio::sync::mpsc::UnboundedSender<UploadEv
 }
 
 /// FFI Callback
-extern "C" fn observer_fn(message: &CxxString) {
-    /*
-    TODO: onProgress should be intercepted maybe?
-void BossaObserver::onProgress(int num, int div) {
-    int ticks;
-    int bars = 30;
-
-    ticks = num * bars / div;
-
-    if (ticks == _lastTicks)
-        return;
-
-
-    printFunc("\r[");
-    while (ticks-- > 0)
-    {
-        printFunc("=");
-        bars--;
-    }
-    while (bars-- > 0)
-    {
-        printFunc(" ");
-    }
-    onStatus("] %d%% (%d/%d pages)", num * 100 / div, num, div);
-
-    _lastTicks = 0;
-}
-     */
+extern "C" fn log_observer_fn(message: &CxxString) {
     match message.to_str(){
-        Ok(str) => {eprint!("{}", str)},
+        Ok(str) => {log::info!("{}", str.trim())},
         _ => {log::warn!("Failed to convert message to utf8 string");}
     }
 }
+
+extern "C" fn prog_observer_fn(current: i32, total: i32) {
+    const PROGRESS_BAR_WIDTH: usize = 32;
+    let mut progress = current as f64 / total as f64;
+    if progress < 0.0 { progress = 0.0; }
+    if progress > 1.0 { progress = 1.0; }
+
+    let percent = progress * 100.0;
+
+    let progress_bar_len = (progress * PROGRESS_BAR_WIDTH as f64).round() as usize;
+
+    let mut progress_bar: [u8; PROGRESS_BAR_WIDTH] = [b' '; PROGRESS_BAR_WIDTH];
+    progress_bar[..progress_bar_len].fill(b'=');
+    // Safety: progress_bar is initialized with '=' and ' '
+    let progress_str = str::from_utf8(&progress_bar).unwrap();
+
+    // bossa c prints use eprint, and otherwise they desync from OS buffering
+    eprint!("\r[{progress_str}] {percent:>6.2}% ({current}/{total})");
+}
+
 
 async fn touch_to_bootloader(output: &mut mpsc::Sender<UploadEvent>, cc_serial_port_info: &SerialPortInfo) -> Result<SerialPortInfo> {
     let port_name = cc_serial_port_info.port_name.clone();

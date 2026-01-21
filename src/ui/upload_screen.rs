@@ -5,7 +5,7 @@ use iced::{Element, Length, Task, Theme};
 use iced_selection::text as selectable_text;
 use crate::app::App;
 use crate::types::{AppScreen, LogEntry};
-use crate::Message;
+use crate::{serial, Message};
 use crate::serial::upload::UploadEvent;
 use crate::ui::MainScreenMessage;
 
@@ -37,7 +37,7 @@ impl UploadState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum UploadProgress {
     Preparing,
-    Uploading { percent: f32 },
+    Uploading(serial::upload::ProgressBar),
     Complete,
     Failed(String),
 }
@@ -53,20 +53,24 @@ pub fn upload_screen(state: &UploadState) -> Element<'static, Message> {
         });
 
     let progress_text = match progress {
-        UploadProgress::Preparing => text("Preparing upload...").size(16),
-        UploadProgress::Uploading { percent } => {
-            text(format!("Uploading: {:.1}%", percent)).size(16)
+        UploadProgress::Preparing => container(text("Preparing upload...").size(16)),
+        UploadProgress::Uploading ( prog_bar ) => {
+            container(column![
+                text(prog_bar.title.clone()).size(32),
+                text(prog_bar.loading_bar_string()).size(16)
+            ])
         }
-        UploadProgress::Complete => text("Upload complete!").size(16).style(|theme: &Theme| {
-            text::Style {
-                color: Some(theme.palette().success),
-            }
-        }),
-        UploadProgress::Failed(err) => text(format!("Upload failed: {}", err))
-            .size(16)
-            .style(|theme: &Theme| text::Style {
-                color: Some(theme.palette().danger),
-            }),
+        UploadProgress::Complete => container(
+            text("Upload complete!").size(16).style(|theme: &Theme| {
+                text::Style { color: Some(theme.palette().success), } })
+        ),
+        UploadProgress::Failed(err) => container(
+            text(format!("Upload failed: {}", err))
+                .size(16)
+                .style(|theme: &Theme| text::Style {
+                    color: Some(theme.palette().danger),
+                })
+        ),
     };
 
     let log_text = state.logs
@@ -126,6 +130,9 @@ impl App{
                         UploadEvent::Error(err) => {
                             state.progress = UploadProgress::Failed(err.clone());
                             state.logs.push(LogEntry::new_now(format!("CRITICAL ERROR: {}", err)));
+                        }
+                        UploadEvent::ProgressBarUpdate(progress) => {
+                            state.progress = UploadProgress::Uploading(progress);
                         }
                         UploadEvent::Success => {
                             state.progress = UploadProgress::Complete;
