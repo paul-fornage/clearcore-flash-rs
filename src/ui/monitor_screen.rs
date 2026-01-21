@@ -1,14 +1,15 @@
 use std::fmt::Display;
-use std::sync::OnceLock;
 use iced::widget::{button, checkbox, column, container, row, scrollable, text, Space, self, operation};
-use iced::{Background, Border, Color, Element, Length, Task, Theme};
+use iced::{clipboard, Background, Border, Color, Element, Length, Task, Theme};
 use iced::border::Radius;
 use iced::widget::scrollable::RelativeOffset;
 use iced_selection::text as selectable_text;
 
+
 use crate::app::App;
 use crate::types::{AppScreen, LogEntry, SerialConfig};
 use crate::Message;
+use crate::ui::toast::Toast;
 
 const CONST_SCROLLABLE_ID: widget::Id = widget::Id::new("serial monitor scrollable widget id");
 
@@ -17,6 +18,9 @@ pub enum MonitorScreenMessage {
     ConnectionStateChanged(MonitorConnectionState),
     SerialData(String),
     JumpToBottom,
+    CopyLogs,
+    SaveLogs,
+    SaveLogsFinished(Result<bool, String>),
 }
 
 #[derive(Debug)]
@@ -160,7 +164,15 @@ pub fn monitor_screen(monitor_state: &MonitorState) -> Element<'static, Message>
         .on_press(Message::MonitorScreen(MonitorScreenMessage::JumpToBottom))
         .padding(5);
 
-    let bottom_controls = row![jump_btn]
+    let copy_btn = button("Copy All")
+        .on_press(Message::MonitorScreen(MonitorScreenMessage::CopyLogs))
+        .padding(5);
+
+    let save_btn = button("Save to File")
+        .on_press(Message::MonitorScreen(MonitorScreenMessage::SaveLogs))
+        .padding(5);
+
+    let bottom_controls = row![jump_btn, copy_btn, save_btn]
         .spacing(20)
         .align_y(iced::Alignment::Center);
 
@@ -193,6 +205,55 @@ impl App{
                     }
                     MonitorScreenMessage::JumpToBottom => {
                         return operation::snap_to(CONST_SCROLLABLE_ID, RelativeOffset::END);
+                    }
+                    MonitorScreenMessage::CopyLogs => {
+                        let content = monitor_state.logs
+                            .iter()
+                            .map(|entry| format!("{entry}"))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+
+                        // Iced has no way to verify the result, I assume it's because it doesn't fail
+                        self.toast = Some(Toast::info("Logs copied to clipboard"));
+                        return clipboard::write(content);
+                    }
+                    MonitorScreenMessage::SaveLogs => {
+                        let content = monitor_state.logs
+                            .iter()
+                            .map(|entry| format!("{entry}"))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+
+                        return Task::future(async move {
+                            let file = rfd::AsyncFileDialog::new()
+                                .set_title("Save Serial Log")
+                                .set_file_name("serial_log.txt")
+                                .save_file()
+                                .await;
+
+                            if let Some(handle) = file {
+                                match handle.write(content.as_bytes()).await {
+                                    Ok(_) => {
+                                        Message::MonitorScreen(MonitorScreenMessage::SaveLogsFinished(Ok(true)))
+                                    },
+                                    Err(e) => {
+                                        log::error!("Failed to save file: {}", e);
+                                        Message::MonitorScreen(MonitorScreenMessage::SaveLogsFinished(Err(format!("Failed to save file: {}", e))))
+                                    }
+                                }
+                            } else {
+                                Message::MonitorScreen(MonitorScreenMessage::SaveLogsFinished(Ok(false)))
+                            }
+                        });
+                    }
+                    MonitorScreenMessage::SaveLogsFinished(Ok(true)) => {
+                        self.toast = Some(Toast::info("Serial log saved successfully"));
+                    }
+                    MonitorScreenMessage::SaveLogsFinished(Ok(false)) => {
+                        // user cancelled?
+                    }
+                    MonitorScreenMessage::SaveLogsFinished(Err(err)) => {
+                        self.toast = Some(Toast::error(format!("Failed to save serial log: {}", err)));
                     }
                 }
             }

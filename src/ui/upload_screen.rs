@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::time::Duration;
-use iced::widget::{button, column, container, scrollable, text, Space};
+use iced::widget::{button, column, container, progress_bar, row, scrollable, text, Space};
 use iced::{Element, Length, Task, Theme};
 use iced_selection::text as selectable_text;
 use crate::app::App;
@@ -55,9 +55,16 @@ pub fn upload_screen(state: &UploadState) -> Element<'static, Message> {
     let progress_text = match progress {
         UploadProgress::Preparing => container(text("Preparing upload...").size(16)),
         UploadProgress::Uploading ( prog_bar ) => {
+            let range = 0f32..=prog_bar.total as f32;
+            let current_progress = prog_bar.current as f32;
+            let percent = current_progress / prog_bar.total as f32 * 100.0;
             container(column![
-                text(prog_bar.title.clone()).size(32),
-                text(prog_bar.loading_bar_string()).size(16)
+                text(prog_bar.phase.to_string()).size(32),
+                row![
+                    progress_bar(range, current_progress),
+                    text(format!("{percent:>6.2}% ({}/{} pages)", prog_bar.current, prog_bar.total))
+                        .size(16).font(iced::Font::MONOSPACE)
+                ]
             ])
         }
         UploadProgress::Complete => container(

@@ -53,7 +53,7 @@ fn toast_widget(toast: &Toast) -> Element<'_, Message> {
         ToastLevel::Error => (Color::from_rgb(0.8, 0.2, 0.2), Color::WHITE),
     };
 
-    let close_button = button(text("×").size(18))
+    let close_button = button(text("×").size(24))
         .on_press(Message::CloseToast)
         .padding(4)
         .style(move |_theme: &Theme, _status| {
@@ -94,9 +94,9 @@ fn toast_widget(toast: &Toast) -> Element<'_, Message> {
 pub fn with_toast<'a>(view: Element<'a, Message>, toast: Option<&'a Toast>) -> Element<'a, Message> {
     if let Some(t) = toast {
         let toast_overlay = container(toast_widget(t))
-            .width(Length::Shrink)
+            .width(Length::Fill)
             .padding([10, 20])
-            .align_x(alignment::Horizontal::Center)
+            .align_x(alignment::Horizontal::Right)
             .align_y(alignment::Vertical::Bottom);
 
         stack![view, toast_overlay]

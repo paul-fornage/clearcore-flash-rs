@@ -12,18 +12,19 @@ use tokio_serial::{SerialPort, SerialPortBuilderExt, SerialPortInfo, SerialPortT
 use cxx::{let_cxx_string, type_id, CxxString, ExternType};
 use crate::types::{SerialConfig, UsbId};
 use crate::serial::find_port_async;
-
+use std::str;
 
 use bossa;
 
 use tokio::time::timeout;
 
+static PROGRESS_STATE: Mutex<ProgressState> = Mutex::new(ProgressState::new());
+static LOG_SENDER: Mutex<Option<tokio::sync::mpsc::UnboundedSender<UploadEvent>>> = Mutex::new(None);
 
 macro_rules! log_send {
     ($output:expr, $level:ident, $($arg:tt)+) => {{
         let msg = format!($($arg)+);
 
-        // 1. Log to console using standard log crate
         match LogMsgType::$level {
             LogMsgType::Error => log::error!("{}", msg),
             LogMsgType::Warn => log::warn!("{}", msg),
@@ -33,7 +34,6 @@ macro_rules! log_send {
             LogMsgType::BossaNative => eprint!("{}", msg),
         }
 
-        // 2. Send to UI channel
         log_minor_err($output.send(UploadEvent::log(LogMsgType::$level, msg)).await);
     }};
 }
@@ -42,7 +42,6 @@ macro_rules! log_send_blocking {
     ($output:expr, $level:ident, $($arg:tt)+) => {{
         let msg = format!($($arg)+);
 
-        // 1. Log to console using standard log crate
         match LogMsgType::$level {
             LogMsgType::Error => log::error!("{}", msg),
             LogMsgType::Warn => log::warn!("{}", msg),
@@ -52,13 +51,10 @@ macro_rules! log_send_blocking {
             LogMsgType::BossaNative => eprint!("{}", msg),
         }
 
-        // 2. Send to UI channel
         log_minor_err($output.send(UploadEvent::log(LogMsgType::$level, msg)));
     }};
 }
 
-
-/// Events yielded by the upload subscription stream to the UI
 #[derive(Debug, Clone)]
 pub enum UploadEvent {
     Log(LogMsg),
@@ -66,24 +62,47 @@ pub enum UploadEvent {
     ProgressBarUpdate(ProgressBar),
     Success,
 }
+
 impl UploadEvent {
     pub fn log(log_type: LogMsgType, message: impl Into<String>) -> Self {
         Self::Log(LogMsg{message: message.into(), log_type})
     }
 }
 
-/// Configuration passed into the subscription
 #[derive(Debug, Clone, PartialEq, Hash)]
 pub struct UploadConfig {
     pub file_path: PathBuf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UploadPhase {
+    #[default]
+    Initializing,
+    Erasing,
+    Writing,
+    Verifying,
+    Resetting,
+}
+
+impl Display for UploadPhase {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UploadPhase::Initializing => write!(f, "Initializing"),
+            UploadPhase::Erasing => write!(f, "Erasing Flash"),
+            UploadPhase::Writing => write!(f, "Writing Firmware"),
+            UploadPhase::Verifying => write!(f, "Verifying Firmware"),
+            UploadPhase::Resetting => write!(f, "Resetting Device"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProgressBar{
-    pub title: String,
+    pub phase: UploadPhase,
     pub current: u32,
     pub total: u32,
 }
+
 impl ProgressBar{
     pub fn loading_bar_string(&self) -> String{
         const PROGRESS_BAR_WIDTH: usize = 32;
@@ -95,10 +114,28 @@ impl ProgressBar{
 
         let mut progress_bar: [u8; PROGRESS_BAR_WIDTH] = [b' '; PROGRESS_BAR_WIDTH];
         progress_bar[..progress_bar_len].fill(b'=');
-        // Safety: progress_bar is initialized with '=' and ' '
         let progress_str = str::from_utf8(&progress_bar).unwrap();
 
         format!("[{progress_str}] {percent:>6.2}% ({}/{})", self.current, self.total)
+    }
+    
+    
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProgressState {
+    phase: UploadPhase,
+    current: u32,
+    total: u32,
+}
+
+impl ProgressState {
+    const fn new() -> Self {
+        Self {
+            phase: UploadPhase::Initializing,
+            current: 0,
+            total: 100,
+        }
     }
 }
 
@@ -107,6 +144,7 @@ pub struct LogMsg {
     pub message: String,
     pub log_type: LogMsgType,
 }
+
 impl Display for LogMsg {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if matches!(self.log_type, LogMsgType::BossaNative) {
@@ -116,6 +154,7 @@ impl Display for LogMsg {
         }
     }
 }
+
 impl Into<String> for LogMsg {
     fn into(self) -> String {
         format!("{}", self)
@@ -132,9 +171,7 @@ pub enum LogMsgType{
     Error,
 }
 
-
 pub const TEKNIC_BOOTLOADER_OFFSET_ADDRESS: u32 = 0x4000;
-
 
 pub fn listen(config: UploadConfig) -> Subscription<UploadEvent> {
     Subscription::run_with(config.clone(), {
@@ -189,12 +226,10 @@ async fn execute_upload_sequence(output: &mut mpsc::Sender<UploadEvent>, config:
 
     log_send!(output, Info, "Firmware path: {}", firmware_path_str);
 
-    // Upload firmware
     match upload_firmware(output, &bootloader_port_info.port_name, firmware_path_str).await {
         Ok(_) => log_send!(output, Info, "Firmware uploaded successfully"),
         Err(e) => anyhow::bail!("Failed to upload firmware: {}", e),
     }
-
 
     let _serial_port_info = timeout(
         Duration::from_secs(10), wait_for_serial_port(UsbId::CLEARCORE_SERIAL)
@@ -206,33 +241,80 @@ async fn execute_upload_sequence(output: &mut mpsc::Sender<UploadEvent>, config:
 }
 
 async fn upload_firmware(output: &mut mpsc::Sender<UploadEvent>, port_name: &str, firmware_path: &str) -> Result<()> {
-    // 1. Create a channel to bridge the blocking thread and the async world
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
     let port_name = port_name.to_string();
     let firmware_path = firmware_path.to_string();
 
-    // 2. Spawn the blocking operation
-    let task = tokio::task::spawn_blocking(move || {
-        upload_firmware_blocking(&tx, &port_name, &firmware_path)
-    });
-
-    // 3. Bridge loop: Forward events from the blocking thread to the Iced stream
-    // This loop keeps running as long as 'tx' exists in the blocking thread.
-    while let Some(event) = rx.recv().await {
-        log_minor_err(output.send(event).await);
+    {
+        let mut state = PROGRESS_STATE.lock().unwrap();
+        *state = ProgressState::new();
     }
 
-    // 4. Await the final result (catches panics too)
+    let task = tokio::task::spawn_blocking(move || {
+        upload_firmware_blocking(tx, &port_name, &firmware_path)
+    });
+
+    let mut ticker = tokio::time::interval(Duration::from_millis(16));
+
+    loop {
+        tokio::select! {
+            _ = ticker.tick() => {
+                 if let Ok(state) = PROGRESS_STATE.lock() {
+                     let _ = output.try_send(UploadEvent::ProgressBarUpdate(ProgressBar {
+                         phase: state.phase,
+                         current: state.current,
+                         total: state.total
+                     }));
+                 }
+            }
+            msg = rx.recv() => {
+                match msg {
+                    Some(event) => {
+                        log_minor_err(output.send(event).await);
+                    }
+                    None => {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     task.await.context("Firmware upload task panicked")??;
 
     Ok(())
 }
 
-fn upload_firmware_blocking(output: &tokio::sync::mpsc::UnboundedSender<UploadEvent>, port_name: &str, firmware_path: &str) -> Result<()> {
+struct GlobalSenderGuard;
 
+impl GlobalSenderGuard {
+    fn new(sender: tokio::sync::mpsc::UnboundedSender<UploadEvent>) -> Self {
+        if let Ok(mut guard) = LOG_SENDER.lock() {
+            *guard = Some(sender);
+        }
+        Self
+    }
+}
 
-    // Create port factory and serial port
+impl Drop for GlobalSenderGuard {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = LOG_SENDER.lock() {
+            *guard = None;
+        }
+    }
+}
+
+fn set_phase(phase: UploadPhase) {
+    if let Ok(mut state) = PROGRESS_STATE.lock() {
+        state.phase = phase;
+        state.current = 0;
+        state.total = 100;
+    }
+}
+
+fn upload_firmware_blocking(output_sender: tokio::sync::mpsc::UnboundedSender<UploadEvent>, port_name: &str, firmware_path: &str) -> Result<()> {
+    let _guard = GlobalSenderGuard::new(output_sender.clone());
 
     let mut port_factory = bossa::lib::new_port_factory();
     let_cxx_string!(port_name_cxx = port_name);
@@ -241,65 +323,56 @@ fn upload_firmware_blocking(output: &tokio::sync::mpsc::UnboundedSender<UploadEv
         anyhow::bail!("Failed to create serial port: {port_name}");
     }
 
-    // Create Samba connection
     let mut samba = bossa::lib::new_samba();
 
     if samba.is_null() {
         anyhow::bail!("Failed to create Samba");
     }
 
-    // Connect at 115200 baud (standard for SAM-BA)
     if !samba.pin_mut().connect(serial_port, 115200) {
         anyhow::bail!("Failed to connect to device via Samba");
     }
-    log_send_blocking!(output, Info, "Connected to device via Samba");
+    log_send_blocking!(output_sender, Info, "Connected to device via Samba");
 
-    // Create device
     let mut device = bossa::lib::new_device(samba.pin_mut());
     device.pin_mut().create();
-    log_send_blocking!(output, Debug, "Device created successfully");
+    log_send_blocking!(output_sender, Debug, "Device created successfully");
 
-    // Create observer for progress callbacks
     let log_observer = bossa::ObserverCallback(log_observer_fn);
     let prog_observer_callback = bossa::ProgressCallback(prog_observer_fn);
     let mut observer = unsafe { bossa::lib::new_bossa_observer_with_progress(log_observer, prog_observer_callback) };
     if observer.is_null() {
         anyhow::bail!("Failed to create observer");
     }
-    log_send_blocking!(output, Debug, "Observer created successfully");
+    log_send_blocking!(output_sender, Debug, "Observer created successfully");
 
-    // Create flasher
     let mut flasher = bossa::lib::new_flasher(
         samba.pin_mut(),
         device.pin_mut(),
         observer.pin_mut()
     );
-    log_send_blocking!(output, Debug, "Flasher created successfully");
+    log_send_blocking!(output_sender, Debug, "Flasher created successfully");
 
-    // Get and print device info
     let mut flasher_info = bossa::lib::new_flasher_info();
     flasher.pin_mut().info(flasher_info.pin_mut());
 
-    flasher_info.pin_mut().print(); // TODO: remove once we verify this is redundant
-
     let mut info = bossa::lib::FlasherInfoRs::default();
     bossa::lib::flasherinfo2flasherinfors(&flasher_info.pin_mut(), &mut info);
-    log_send_blocking!(output, Info, "Device info: {info:?}");
+    log_send_blocking!(output_sender, Info, "Device info: {}", info.info());
 
-    // Erase flash
-    log_send_blocking!(output, Info, "Erasing flash...");
+    log_send_blocking!(output_sender, Info, "Erasing flash...");
+    set_phase(UploadPhase::Erasing);
     flasher.pin_mut().erase(TEKNIC_BOOTLOADER_OFFSET_ADDRESS);
 
-    // Write firmware
-    log_send_blocking!(output, Info, "Writing firmware from {}", firmware_path);
+    log_send_blocking!(output_sender, Info, "Writing firmware from {}", firmware_path);
+    set_phase(UploadPhase::Writing);
     let_cxx_string!(firmware_path_cxx = firmware_path);
     unsafe {
         flasher.pin_mut().write(firmware_path_cxx.as_c_str().as_ptr(), TEKNIC_BOOTLOADER_OFFSET_ADDRESS);
     }
-    eprint!("\n"); // they don't newline after progress bar.
 
-
-    log_send_blocking!(output, Info, "Verifying firmware...");
+    log_send_blocking!(output_sender, Info, "Verifying firmware...");
+    set_phase(UploadPhase::Verifying);
     let mut page_errors = 0u32;
     let mut total_errors = 0u32;
     let verify_ok = unsafe {
@@ -310,46 +383,35 @@ fn upload_firmware_blocking(output: &tokio::sync::mpsc::UnboundedSender<UploadEv
             TEKNIC_BOOTLOADER_OFFSET_ADDRESS
         )
     };
-    eprint!("\n"); // they don't newline after progress bar.
-
 
     if !verify_ok || total_errors > 0 {
         anyhow::bail!("Verification failed: {} page errors, {} total errors", page_errors, total_errors);
     }
-    log_send_blocking!(output, Info, "Firmware verification successful");
+    log_send_blocking!(output_sender, Info, "Firmware verification successful");
 
-    // Reset device to run new firmware
-    log_send_blocking!(output, Info, "Resetting device...");
+    log_send_blocking!(output_sender, Info, "Resetting device...");
+    set_phase(UploadPhase::Resetting);
     flasher.pin_mut().reset();
-    log_send_blocking!(output, Info, "Reset complete");
+    log_send_blocking!(output_sender, Info, "Reset complete");
     Ok(())
 }
 
-/// FFI Callback
 extern "C" fn log_observer_fn(message: &CxxString) {
-    match message.to_str(){
-        Ok(str) => {log::info!("{}", str.trim())},
-        _ => {log::warn!("Failed to convert message to utf8 string");}
+    if let Ok(str_slice) = message.to_str() {
+        let msg = str_slice.trim().to_string();
+        if let Ok(guard) = LOG_SENDER.lock() {
+            if let Some(sender) = guard.as_ref() {
+                let _ = sender.send(UploadEvent::log(LogMsgType::BossaNative, msg));
+            }
+        }
     }
 }
 
 extern "C" fn prog_observer_fn(current: i32, total: i32) {
-    const PROGRESS_BAR_WIDTH: usize = 32;
-    let mut progress = current as f64 / total as f64;
-    if progress < 0.0 { progress = 0.0; }
-    if progress > 1.0 { progress = 1.0; }
-
-    let percent = progress * 100.0;
-
-    let progress_bar_len = (progress * PROGRESS_BAR_WIDTH as f64).round() as usize;
-
-    let mut progress_bar: [u8; PROGRESS_BAR_WIDTH] = [b' '; PROGRESS_BAR_WIDTH];
-    progress_bar[..progress_bar_len].fill(b'=');
-    // Safety: progress_bar is initialized with '=' and ' '
-    let progress_str = str::from_utf8(&progress_bar).unwrap();
-
-    // bossa c prints use eprint, and otherwise they desync from OS buffering
-    eprint!("\r[{progress_str}] {percent:>6.2}% ({current}/{total})");
+    if let Ok(mut state) = PROGRESS_STATE.lock() {
+        state.current = current as u32;
+        state.total = total as u32;
+    }
 }
 
 
@@ -409,8 +471,6 @@ pub fn is_specified_port(port_info: &SerialPortInfo, target_usb_id: UsbId) -> bo
     }
 }
 
-// --- Helpers ---
-
 fn log_minor_err<E: Display>(res: Result<(), E>) {
     if let Err(err) = res {
         log::warn!("Upload stream warning: {}", err);
@@ -448,4 +508,3 @@ async fn wait_for_port(id: &UsbId, timeout: Duration) -> Result<String> {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
-
