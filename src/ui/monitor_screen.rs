@@ -1,43 +1,102 @@
+use std::fmt::Display;
 use std::sync::OnceLock;
-use iced::widget::{button, checkbox, column, container, row, scrollable, text, Space, self};
-use iced::{Border, Element, Length, Task, Theme};
+use iced::widget::{button, checkbox, column, container, row, scrollable, text, Space, self, operation};
+use iced::{Background, Border, Color, Element, Length, Task, Theme};
+use iced::border::Radius;
+use iced::widget::scrollable::RelativeOffset;
 use iced_selection::text as selectable_text;
-use serialport::SerialPort;
+
 use crate::app::App;
-use crate::types::{AppScreen, LogEntry, SerialConfig, Toast};
+use crate::types::{AppScreen, LogEntry, SerialConfig};
 use crate::Message;
 
-static SCROLLABLE_ID: OnceLock<widget::Id> = OnceLock::new();
+const CONST_SCROLLABLE_ID: widget::Id = widget::Id::new("serial monitor scrollable widget id");
 
 #[derive(Debug, Clone)]
 pub enum MonitorScreenMessage {
+    ConnectionStateChanged(MonitorConnectionState),
     SerialData(String),
-    SerialError(String),
-    SetAutoScroll(bool),
+    JumpToBottom,
 }
 
 #[derive(Debug)]
 pub struct MonitorState{
     pub serial_config: SerialConfig,
-    pub serial_port: Option<Box<dyn SerialPort>>,
+    pub connection_state: MonitorConnectionState,
     pub logs: Vec<LogEntry>,
-    pub auto_scroll: bool,
-    pub is_connecting: bool,
-    pub is_connected: bool,
 }
 
 impl Default for MonitorState {
     fn default() -> Self {
         Self {
             serial_config: SerialConfig::default(),
-            serial_port: None,
+            connection_state: MonitorConnectionState::Disconnected, // Starts disconnected until entered
             logs: Vec::new(),
-            auto_scroll: true,
-            is_connecting: true,
-            is_connected: false,
         }
     }
 }
+
+
+
+/// Represents the current state of the serial connection
+#[derive(Debug, Clone, PartialEq)]
+pub enum MonitorConnectionState {
+    Disconnected,
+    Searching,
+    Connecting(String),
+    Connected(String),
+    Error(String),
+}
+
+impl Default for MonitorConnectionState {
+    fn default() -> Self {
+        Self::Disconnected
+    }
+}
+
+
+
+// Helper for the banner
+fn connection_banner(state: &MonitorConnectionState) -> Element<'static, Message> {
+    let (bg_color, content) = match state {
+        MonitorConnectionState::Disconnected => (
+            Color::from_rgb(0.5, 0.5, 0.5),
+            text("Disconnected")
+        ),
+        MonitorConnectionState::Searching => (
+            Color::from_rgb(0.8, 0.8, 0.0), // Yellow-ish
+            text("Searching for ClearCore...")
+        ),
+        MonitorConnectionState::Connecting(port) => (
+            Color::from_rgb(0.0, 0.5, 0.8), // Blue-ish
+            text(format!("Connecting to {}...", port))
+        ),
+        MonitorConnectionState::Connected(port) => (
+            Color::from_rgb(0.0, 0.8, 0.0), // Green
+            text(format!("Connected to {}", port))
+        ),
+        MonitorConnectionState::Error(err) => (
+            Color::from_rgb(0.9, 0.1, 0.1), // Red
+            text(format!("Error: {}", err))
+        ),
+    };
+
+    container(content.size(14).style(|_| text::Style{ color: Some(Color::WHITE) }))
+        .width(Length::Fill)
+        .padding(5)
+        .align_x(iced::Alignment::Center)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(bg_color)),
+            border: Border{
+                width: 3.0,
+                color: bg_color.scale_alpha(0.5),
+                radius: Radius::new(5.0),
+            },
+            ..Default::default()
+        })
+        .into()
+}
+
 
 
 /// Render the monitor screen with serial log view
@@ -52,46 +111,61 @@ pub fn monitor_screen(monitor_state: &MonitorState) -> Element<'static, Message>
         .on_press(Message::BackToMain)
         .padding(8);
 
-    let autoscroll_checkbox = checkbox(monitor_state.auto_scroll)
-        .label("autoscroll")
-        .on_toggle(|enabled| Message::MonitorScreen(MonitorScreenMessage::SetAutoScroll(enabled)))
-        .size(16);
-
-    let header = row![back_button, Space::new().width(20), title, autoscroll_checkbox]
+    let header = row![back_button, Space::new().width(20), title]
         .spacing(10)
         .align_y(iced::Alignment::Center);
 
+    // Banner sits below header, above logs
+    let banner = connection_banner(&monitor_state.connection_state);
+
     let log_text = monitor_state.logs
         .iter()
-        .map(|entry| format!("[{}] {}", entry.timestamp, entry.message))
+        .map(|entry| format!("{entry}"))
         .collect::<Vec<_>>()
         .join("\n");
 
+
     let log_view = scrollable(
-        container(
-            selectable_text(log_text)
-                .font(iced::Font::MONOSPACE)
-                .size(14)
-        ).style(|theme: &Theme| {
-            container::Style {
-                background: Some(theme.palette().background.into()),
-                border: Border{
-                    width: 2.0,
-                    color: theme.palette().primary.scale_alpha(0.5),
-                    radius: iced::border::radius(10.0)
-                },
-                ..Default::default()
-            }
-        })
-            .padding(10)
-            .width(Length::Fill)
+        selectable_text(log_text)
+            .font(iced::Font::MONOSPACE)
+            .size(14)
     )
-        .id(SCROLLABLE_ID.get_or_init(widget::Id::unique).clone())
+        .id(CONST_SCROLLABLE_ID.clone())
         .height(Length::Fill)
         .width(Length::Fill);
 
-    let content = column![header, log_view]
+
+    let is_connected = matches!(monitor_state.connection_state, MonitorConnectionState::Connected(_));
+
+    let log_view_container = container(log_view).style(move |theme: &Theme| {
+        let border_color = if is_connected {
+            theme.palette().primary.scale_alpha(0.5)
+        } else {
+            Color::from_rgb(0.8, 0.0, 0.0) // Red warning border
+        };
+
+        container::Style {
+            background: Some(theme.palette().background.into()),
+            border: Border{
+                width: 3.0,
+                color: border_color,
+                radius: Radius::new(10.0)
+            },
+            ..Default::default()
+        }
+    }).padding(10);
+
+
+    let jump_btn = button("Jump to bottom")
+        .on_press(Message::MonitorScreen(MonitorScreenMessage::JumpToBottom))
+        .padding(5);
+
+    let bottom_controls = row![jump_btn]
         .spacing(20)
+        .align_y(iced::Alignment::Center);
+
+    let content = column![header, banner, log_view_container, bottom_controls]
+        .spacing(10)
         .padding(20)
         .width(Length::Fill)
         .height(Length::Fill);
@@ -104,28 +178,21 @@ pub fn monitor_screen(monitor_state: &MonitorState) -> Element<'static, Message>
 
 
 impl App{
-    pub fn handle_monitor_screen_message(&mut self, msg: MonitorScreenMessage) -> Task<Message>{
-        match self.screen{
+    pub fn handle_monitor_screen_message(&mut self, msg: MonitorScreenMessage) -> Task<Message> {
+        match self.screen {
             AppScreen::Monitor(ref mut monitor_state) => {
                 match msg {
                     MonitorScreenMessage::SerialData(line) => {
-                        // Add the line to logs (already contains newline)
                         let trimmed = line.trim_end();
                         if !trimmed.is_empty() {
-                            monitor_state.logs.push(LogEntry::new(trimmed.to_string()));
+                            monitor_state.logs.push(LogEntry::new_now(trimmed.to_string()));
                         }
                     }
-
-                    MonitorScreenMessage::SerialError(err) => {
-                        self.toast = Some(Toast::error(format!("Serial error: {}", err)));
-                        log::error!("Serial error: {}", err);
-                        monitor_state.is_connected = false;
-                        // Stay on monitor screen but stop receiving data
+                    MonitorScreenMessage::ConnectionStateChanged(new_state) => {
+                        monitor_state.connection_state = new_state;
                     }
-
-                    MonitorScreenMessage::SetAutoScroll(new_value) => {
-                        log::info!("Auto scroll toggled to: {}", new_value);
-                        monitor_state.auto_scroll = new_value;
+                    MonitorScreenMessage::JumpToBottom => {
+                        return operation::snap_to(CONST_SCROLLABLE_ID, RelativeOffset::END);
                     }
                 }
             }

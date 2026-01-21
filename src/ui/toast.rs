@@ -3,9 +3,45 @@ use iced::widget::{button, checkbox, column, container, row, scrollable, stack, 
 use iced::{alignment, Border, Color, Element, Length, Theme};
 use iced_selection::text as selectable_text;
 
-use crate::types::{LogEntry, Toast, ToastLevel, UploadProgress};
+use crate::types::{LogEntry};
 use crate::Message;
 
+/// Toast notification
+#[derive(Debug, Clone, PartialEq)]
+pub struct Toast {
+    pub message: String,
+    pub level: ToastLevel,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ToastLevel {
+    Info,
+    Warning,
+    Error,
+}
+
+impl Toast {
+    pub fn error(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            level: ToastLevel::Error,
+        }
+    }
+
+    pub fn warning(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            level: ToastLevel::Warning,
+        }
+    }
+
+    pub fn info(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            level: ToastLevel::Info,
+        }
+    }
+}
 
 
 

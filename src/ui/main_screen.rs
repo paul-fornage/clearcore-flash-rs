@@ -2,9 +2,10 @@ use iced::widget::{button, checkbox, column, container, row, text, Space};
 use iced::{Element, Length, Task, Theme};
 
 use crate::{serial, ui, Message};
-use crate::app::{upload_firmware, App};
-use crate::types::{AppScreen, LogEntry, SerialConfig, Toast, UploadProgress, UploadState};
+use crate::app::App;
+use crate::types::{AppScreen, LogEntry, SerialConfig};
 use crate::ui::monitor_screen::MonitorState;
+use crate::ui::upload_screen::{UploadProgress, UploadState};
 
 #[derive(Debug, Clone)]
 pub enum MainScreenMessage {
@@ -12,8 +13,6 @@ pub enum MainScreenMessage {
     FileSelected(Option<std::path::PathBuf>),
     SetMonitorAfterUpload(bool),
     StartMonitoring,
-    MonitorConnected,
-    MonitorConnectionFailed(String),
 }
 
 /// Render the main screen with upload and monitor buttons
@@ -87,18 +86,12 @@ impl App{
 
             MainScreenMessage::FileSelected(Some(path)) => {
                 log::info!("Selected file: {:?}", path);
-
                 self.screen = AppScreen::Upload(UploadState {
                     file_path: path.clone(),
                     progress: UploadProgress::Preparing,
                     monitor_after: self.monitor_after_upload,
+                    logs: Vec::new(),
                 });
-
-                // Start the upload process
-                return Task::perform(
-                    upload_firmware(path),
-                    |_| Message::UploadScreen(ui::UploadScreenMessage::UploadProgress(UploadProgress::Complete)),
-                );
             }
 
             MainScreenMessage::FileSelected(None) => {
@@ -111,16 +104,7 @@ impl App{
 
             MainScreenMessage::StartMonitoring => {
                 log::info!("Starting serial monitor...");
-                self.toast = Some(Toast::info("Connecting...".to_string()));
                 self.screen = AppScreen::Monitor(MonitorState::default());
-            }
-
-            MainScreenMessage::MonitorConnected => {
-                // Not used anymore
-            }
-
-            MainScreenMessage::MonitorConnectionFailed(_e) => {
-                // Not used anymore
             }
         }
         Task::none()

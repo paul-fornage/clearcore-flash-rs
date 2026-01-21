@@ -1,11 +1,12 @@
 use iced::{Element, Task, Theme, Subscription};
-use serialport::SerialPort;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::serial;
-use crate::types::{AppScreen, LogEntry, SerialConfig, Toast, UploadProgress, UploadState};
+use crate::serial::upload::UploadConfig;
+use crate::types::{AppScreen};
 use crate::ui;
+use crate::ui::toast::Toast;
 
 /// Main application state
 pub struct App {
@@ -47,7 +48,7 @@ impl App {
     pub fn title(&self) -> String {
         match self.screen {
             AppScreen::Main => "ClearCore Flasher".to_string(),
-            AppScreen::Upload(_) => "ClearCore Flasher - Uploading".to_string(),
+            AppScreen::Upload(_) => "ClearCore Flasher - Upload".to_string(),
             AppScreen::Monitor(_) => "ClearCore Flasher - Monitor".to_string(),
         }
     }
@@ -82,19 +83,35 @@ impl App {
 
         Task::none()
     }
-    
+
     pub fn subscription(&self) -> Subscription<Message> {
         match &self.screen {
-            AppScreen::Monitor(state) if state.is_connecting || state.is_connected => {
-                serial::listen()
-                    .map(|event| match event {
-                        serial::SerialEvent::Data(line) => {
-                            Message::MonitorScreen(ui::MonitorScreenMessage::SerialData(line))
-                        }
-                        serial::SerialEvent::Error(e) => {
-                            Message::MonitorScreen(ui::MonitorScreenMessage::SerialError(e))
-                        }
+            // Only run subscription when on Monitor screen
+            // The subscription itself handles the searching -> connecting flow
+            AppScreen::Monitor(_) => {
+                serial::monitor::listen().map(|event| match event {
+                    serial::monitor::SerialMonitorEvent::Data(line) => {
+                        Message::MonitorScreen(ui::monitor_screen::MonitorScreenMessage::SerialData(line))
+                    }
+                    serial::monitor::SerialMonitorEvent::StateChange(state) => {
+                        Message::MonitorScreen(ui::monitor_screen::MonitorScreenMessage::ConnectionStateChanged(state))
+                    }
+                })
+            }
+            AppScreen::Upload(state) => {
+                // Stop subscription if we are done or failed, to stop polling
+                if matches!(state.progress, ui::upload_screen::UploadProgress::Complete | ui::upload_screen::UploadProgress::Failed(_)) {
+                    Subscription::none()
+                } else {
+                    // Start the upload stream
+                    let config = UploadConfig {
+                        file_path: state.file_path.clone(),
+                    };
+
+                    serial::upload::listen(config).map(|event| {
+                        Message::UploadScreen(ui::upload_screen::UploadScreenMessage::Event(event))
                     })
+                }
             }
             _ => Subscription::none(),
         }
@@ -103,7 +120,7 @@ impl App {
     pub fn view(&self) -> Element<Message> {
         let view = match &self.screen {
             AppScreen::Main => ui::main_screen(self.monitor_after_upload),
-            AppScreen::Upload(state) => ui::upload_screen(&state.progress),
+            AppScreen::Upload(state) => ui::upload_screen(state),
             AppScreen::Monitor(monitor_state) => ui::monitor_screen(monitor_state),
         };
 
@@ -113,15 +130,4 @@ impl App {
     pub fn theme(&self) -> Theme {
         Theme::TokyoNightStorm
     }
-
-    
-}
-
-/// Upload firmware to ClearCore (placeholder)
-pub async fn upload_firmware(_path: PathBuf) -> anyhow::Result<()> {
-    // Simulate upload process
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    // TODO: Implement actual upload using bossac wrapper
-    todo!("Implement firmware upload using bossac")
 }

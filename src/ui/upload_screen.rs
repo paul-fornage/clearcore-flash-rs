@@ -1,19 +1,51 @@
+use std::path::PathBuf;
 use std::time::Duration;
 use iced::widget::{button, column, container, scrollable, text, Space};
 use iced::{Element, Length, Task, Theme};
 use iced_selection::text as selectable_text;
 use crate::app::App;
-use crate::types::{AppScreen, LogEntry, UploadProgress};
+use crate::types::{AppScreen, LogEntry};
 use crate::Message;
+use crate::serial::upload::UploadEvent;
 use crate::ui::MainScreenMessage;
 
 #[derive(Debug, Clone)]
 pub enum UploadScreenMessage {
-    UploadProgress(UploadProgress),
+    Event(UploadEvent),
+}
+
+/// Upload state and progress
+#[derive(Debug, Clone, PartialEq)]
+pub struct UploadState {
+    pub file_path: PathBuf,
+    pub progress: UploadProgress,
+    pub monitor_after: bool,
+    pub logs: Vec<LogEntry>,
+}
+
+impl UploadState {
+    pub fn new(file_path: PathBuf, monitor_after: bool) -> Self {
+        Self {
+            file_path,
+            progress: UploadProgress::Preparing,
+            monitor_after,
+            logs: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UploadProgress {
+    Preparing,
+    Uploading { percent: f32 },
+    Complete,
+    Failed(String),
 }
 
 /// Render the upload screen with progress and logs
-pub fn upload_screen(progress: &UploadProgress) -> Element<'static, Message> {
+pub fn upload_screen(state: &UploadState) -> Element<'static, Message> {
+    let progress = &state.progress;
+
     let title = text("Uploading Firmware")
         .size(24)
         .style(|theme: &Theme| text::Style {
@@ -36,11 +68,16 @@ pub fn upload_screen(progress: &UploadProgress) -> Element<'static, Message> {
                 color: Some(theme.palette().danger),
             }),
     };
-    
+
+    let log_text = state.logs
+        .iter()
+        .map(|entry| format!("{entry}"))
+        .collect::<Vec<_>>()
+        .join("\n");
 
     let log_view = scrollable(
         container(
-            selectable_text("log_text")
+            selectable_text(log_text)
                 .font(iced::Font::MONOSPACE)
                 .size(14)
         )
@@ -80,24 +117,30 @@ pub fn upload_screen(progress: &UploadProgress) -> Element<'static, Message> {
 impl App{
     pub fn handle_upload_screen_message(&mut self, msg: UploadScreenMessage) -> Task<Message> {
         match msg {
-            UploadScreenMessage::UploadProgress(progress) => {
+            UploadScreenMessage::Event(event) => {
                 if let AppScreen::Upload(ref mut state) = self.screen {
-                    let monitor_after = state.monitor_after;
-                    state.progress = progress.clone();
-
-                    if let UploadProgress::Complete = progress {
-
-                        if monitor_after {
-                            // Transition to monitor screen
-                            return Task::perform(
-                                async {
-                                    tokio::time::sleep(Duration::from_secs(1)).await;
-                                },
-                                |_| Message::MainScreen(MainScreenMessage::StartMonitoring),
-                            );
+                    match event {
+                        UploadEvent::Log(line) => {
+                            state.logs.push(LogEntry::new_now(line));
                         }
-                    } else if let UploadProgress::Failed(ref err) = progress {
-                        log::error!("Upload failed: {}", err);
+                        UploadEvent::Error(err) => {
+                            state.progress = UploadProgress::Failed(err.clone());
+                            state.logs.push(LogEntry::new_now(format!("CRITICAL ERROR: {}", err)));
+                        }
+                        UploadEvent::Success => {
+                            state.progress = UploadProgress::Complete;
+                            state.logs.push(LogEntry::new_now("SUCCESS: Firmware uploaded successfully."));
+
+                            if state.monitor_after {
+                                // Transition to monitor screen automatically
+                                return Task::perform(
+                                    async {
+                                        tokio::time::sleep(Duration::from_secs(1)).await;
+                                    },
+                                    |_| Message::MainScreen(MainScreenMessage::StartMonitoring),
+                                );
+                            }
+                        }
                     }
                 }
             }
