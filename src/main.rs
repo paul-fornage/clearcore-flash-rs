@@ -8,7 +8,7 @@ use iced::{application, window, Size};
 
 
 fn main() -> iced::Result {
-    env_logger::Builder::new().filter_level(log::LevelFilter::Debug)
+    env_logger::Builder::new().filter_level(log::LevelFilter::Trace)
         .filter(Some("zbus"), log::LevelFilter::Warn)
         .filter(Some("rfd"), log::LevelFilter::Warn)
         .filter(Some("tracing"), log::LevelFilter::Warn)
@@ -20,6 +20,7 @@ fn main() -> iced::Result {
         .filter(Some("wgpu_core"), log::LevelFilter::Warn)
         .filter(Some("sctk"), log::LevelFilter::Warn)
         .filter(Some("winit"), log::LevelFilter::Warn)
+        .filter(Some("iced_graphics"), log::LevelFilter::Debug)
         .init();
 
 

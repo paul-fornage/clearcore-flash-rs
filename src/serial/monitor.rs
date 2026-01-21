@@ -4,7 +4,7 @@ use iced::futures::{SinkExt, Stream};
 use iced::{stream, Subscription};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio_serial::SerialPortBuilderExt;
+use tokio_serial::{SerialPort, SerialPortBuilderExt};
 use iced::futures::channel::mpsc;
 use tokio_util::codec::{Decoder, Encoder};
 use futures::stream::StreamExt;
@@ -72,6 +72,7 @@ fn connect_and_listen() -> impl Stream<Item =SerialMonitorEvent> {
                     continue;
                 }
             };
+            log::info!("ClearCore serial port found: {}", port_name);
 
             // 2. Report we are connecting
             state_change(&mut output, MonitorConnectionState::Connecting(port_name.clone())).await;
@@ -83,7 +84,14 @@ fn connect_and_listen() -> impl Stream<Item =SerialMonitorEvent> {
                 .open_native_async();
 
             match port_result {
-                Ok(port) => {
+                Ok(mut port) => {
+                    log::info!("Opened serial port. name: {:?}", port.name());
+                    if let Err(e) = port.write_data_terminal_ready(true) {
+                        log::warn!("Failed to set DTR: {}", e);
+                    }
+                    if let Err(e) = port.write_request_to_send(true) {
+                        log::warn!("Failed to set RTS: {}", e);
+                    }
                     // 4. Connected!
                     state_change(&mut output,
                                  MonitorConnectionState::Connected(port_name.clone())).await;
@@ -96,19 +104,19 @@ fn connect_and_listen() -> impl Stream<Item =SerialMonitorEvent> {
                         line.clear();
                         match reader.read_line(&mut line).await {
                             Ok(0) => {
-                                // EOF: Device disconnected
+                                log::warn!("EOF: Device disconnected");
                                 state_change(&mut output, MonitorConnectionState::Error(
                                                  "Device disconnected".to_string())).await;
                                 break; // Break read loop, go back to search loop
                             }
                             Ok(_) => {
-                                // Data received
+                                log::trace!("Received serial data: {}", line);
                                 if output.send(SerialMonitorEvent::Data(line.clone())).await.is_err() {
                                     return; // Listener cancelled (UI changed screens), stop everything.
                                 }
                             }
                             Err(e) => {
-                                // IO Error
+                                log::error!("IO error: {:?}", e);
                                 state_change(&mut output,
                                              MonitorConnectionState::Error(e.to_string())).await;
                                 break; // Break read loop
@@ -118,6 +126,7 @@ fn connect_and_listen() -> impl Stream<Item =SerialMonitorEvent> {
                 }
                 Err(e) => {
                     // Connection failed immediately
+                    log::warn!("Failed to open serial port: {}", e);
                     state_change(&mut output,
                                  MonitorConnectionState::Error(e.to_string())).await;
                 }

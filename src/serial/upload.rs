@@ -188,7 +188,7 @@ pub fn subscription(config: UploadConfig) -> impl Stream<Item =UploadEvent> {
                 log_minor_err(output.send(UploadEvent::Success).await);
             }
             Err(e) => {
-                log::error!("upload sequence failed: {}", e);
+                log::error!("upload sequence failed: {:?}", e);
                 log_minor_err(output.send(UploadEvent::Error(e.to_string())).await);
             }
         }
@@ -209,8 +209,8 @@ async fn execute_upload_sequence(output: &mut mpsc::Sender<UploadEvent>, config:
         tokio::time::sleep(Duration::from_secs(1)).await;
         cc_bootloader_port_info
     } else {
-        log_send!(output, Warn, "Failed to find cc serial port");
         if let Ok(cc_bootloader_port_info) = find_serial_port(UsbId::CLEARCORE_BOOTLOADER).await {
+            log_send!(output, Warn, "Clearcore already in bootloader mode, skipping touching to bootloader");
             cc_bootloader_port_info
         } else {
             log_send!(output, Error, "Failed to find cc serial port");
@@ -322,12 +322,13 @@ fn upload_firmware_blocking(output_sender: tokio::sync::mpsc::UnboundedSender<Up
     if serial_port.is_null() {
         anyhow::bail!("Failed to create serial port: {port_name}");
     }
+    log_send_blocking!(output_sender, Debug, "Serial port created successfully");
 
     let mut samba = bossa::lib::new_samba();
-
     if samba.is_null() {
         anyhow::bail!("Failed to create Samba");
     }
+    log_send_blocking!(output_sender, Debug, "Samba created successfully");
 
     if !samba.pin_mut().connect(serial_port, 115200) {
         anyhow::bail!("Failed to connect to device via Samba");
@@ -417,22 +418,32 @@ extern "C" fn prog_observer_fn(current: i32, total: i32) {
 
 async fn touch_to_bootloader(output: &mut mpsc::Sender<UploadEvent>, cc_serial_port_info: &SerialPortInfo) -> Result<SerialPortInfo> {
     let port_name = cc_serial_port_info.port_name.clone();
-    let cc_serial_port = tokio_serial::new(port_name, 1200).open_native_async()?;
+    match tokio_serial::new(&port_name, 1200).open_native_async(){
+        Ok(cc_serial_port) => {
+            log_send!(output, Info, "cc serial port opened");
 
-    log_send!(output, Info, "cc serial port opened");
+            drop(cc_serial_port);
 
-    drop(cc_serial_port);
+            log_send!(output, Info, "cc serial port closed");
+        },
+        Err(e) => {
+            log_send!(output, Error, "Failed to open cc serial port at 1200bps: {} \n\
+            This might not be a problem on windows. Error: {}", &port_name, e);
+        }
+    }
 
-    log_send!(output, Info, "cc serial port closed");
+
 
     timeout(Duration::from_secs(5), wait_for_serial_port_disconnect(UsbId::CLEARCORE_SERIAL))
-        .await??;
+        .await.context("Timed out waiting for cc serial port disconnect")?
+        .context("unexpected error while waiting for serial port to disconnect after touching")?;
 
     log_send!(output, Info, "cc serial disconnected");
 
     let bootloader_port = timeout(
         Duration::from_secs(10), wait_for_serial_port(UsbId::CLEARCORE_BOOTLOADER)
-    ).await??;
+    ).await.context("Timed out waiting for cc bootloader port")?
+        .context("unexpected error while waiting for bootloader port to appear after touching")?;
 
     log::info!("cc bootloader found");
 
@@ -478,7 +489,7 @@ fn log_minor_err<E: Display>(res: Result<(), E>) {
 }
 
 async fn touch_port(port_name: &str) -> Result<()> {
-    let mut port = tokio_serial::new(port_name, 1200).open_native_async()?;
+    let mut port = tokio_serial::new(port_name, 1200).open()?;
     port.write_data_terminal_ready(false)?;
     tokio::time::sleep(Duration::from_millis(200)).await;
     drop(port);
