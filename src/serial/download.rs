@@ -1,4 +1,4 @@
-use crate::serial::{get_or_touch_to_bootloader, log_minor_err, touch_to_bootloader, wait_for_serial_port, LogMsg, LogMsgType};
+use crate::serial::{get_or_touch_to_bootloader, log_minor_err, touch_to_bootloader, wait_for_serial_port};
 use std::ffi::{CStr, CString};
 use std::fmt::{Display, Formatter};
 use std::os::raw::c_char;
@@ -11,7 +11,7 @@ use iced::{stream, Subscription};
 use iced::futures::channel::mpsc;
 use tokio_serial::{SerialPort, SerialPortBuilderExt, SerialPortInfo, SerialPortType};
 use cxx::{let_cxx_string, type_id, CxxString, ExternType};
-use crate::types::{SerialConfig, UsbId};
+use crate::types::{LogMsg, LogMsgType, SerialConfig, UsbId};
 use crate::serial::{find_port_async, TEKNIC_BOOTLOADER_OFFSET_ADDRESS};
 use std::str;
 
@@ -39,7 +39,7 @@ pub fn get_temp_download_path() -> PathBuf {
 pub enum DownloadEvent {
     Log(LogMsg),
     Error(String),
-    ProgressBarUpdate(ProgressBar),
+    ProgressBarUpdate(DownloadProgressBar),
     Success,
 }
 
@@ -74,7 +74,7 @@ impl Display for DownloadPhase {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProgressBar{
+pub struct DownloadProgressBar {
     pub phase: DownloadPhase,
     pub current: u32,
     pub total: u32,
@@ -180,7 +180,7 @@ async fn download_firmware(output: &mut mpsc::Sender<DownloadEvent>, port_name: 
                  if let Ok(state) = PROGRESS_STATE.lock() {
                      // We intentionally drop the lock immediately after cloning data
                      // This prevents "MutexGuard across await" error
-                     let prog_bar = ProgressBar {
+                     let prog_bar = DownloadProgressBar {
                          phase: state.phase,
                          current: state.current,
                          total: state.total

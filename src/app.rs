@@ -25,7 +25,7 @@ pub enum Message {
     UploadScreen(ui::upload_screen::UploadScreenMessage),
 
     DownloadScreen(ui::download_screen::DownloadScreenMessage),
-    
+
     // Monitor screen
     MonitorScreen(ui::monitor_screen::MonitorScreenMessage),
 
@@ -147,6 +147,6 @@ impl App {
     }
 
     pub fn theme(&self) -> Theme {
-        Theme::TokyoNightStorm
+        Theme::Oxocarbon
     }
 }

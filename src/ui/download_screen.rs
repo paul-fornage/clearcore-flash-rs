@@ -1,11 +1,11 @@
 use std::path::PathBuf;
-use iced::widget::{button, column, container, progress_bar, row, text, Space};
-use iced::{widget, Color, Element, Length, Task, Theme};
+use iced::widget::{button, column, container, progress_bar, row, stack, text, Container, Space};
+use iced::{widget, Color, Element, Length, Renderer, Task, Theme};
 use crate::app::App;
 use crate::types::{AppScreen, LogEntry};
 use crate::Message;
-use crate::serial::download::DownloadEvent;
-use crate::ui::common::logs_to_container;
+use crate::serial::download::{DownloadEvent, DownloadProgressBar};
+use crate::ui::common::{logs_to_container, prog_bar};
 
 #[derive(Debug, Clone)]
 pub enum DownloadScreenMessage {
@@ -17,7 +17,7 @@ pub enum DownloadScreenMessage {
 const DOWNLOAD_LOG_SCROLLABLE_ID: widget::Id = widget::Id::new("download_log_scrollable_id");
 
 /// Download state and progress
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct DownloadState {
     pub progress: DownloadProgress,
     pub logs: Vec<LogEntry>,
@@ -35,9 +35,15 @@ impl DownloadState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DownloadProgress {
     Preparing,
-    Downloading(crate::serial::download::ProgressBar),
+    Downloading(DownloadProgressBar),
     Complete,
     Failed(String),
+}
+
+impl DownloadProgressBar {
+    pub fn as_gui_element(&self) -> Container<'static, Message, Theme, Renderer> {
+        prog_bar(self.total, self.current, &self.phase.to_string())
+    }
 }
 
 /// Render the download screen with progress and logs
@@ -50,20 +56,37 @@ pub fn download_screen(state: &DownloadState) -> Element<'static, Message> {
             color: Some(theme.palette().primary),
         });
 
+    let back_button = if matches!(progress, DownloadProgress::Complete | DownloadProgress::Failed(_)) {
+        Some(
+            button(text("← Back to Main").size(16))
+                .on_press(Message::BackToMain)
+                .padding(8),
+        )
+    } else {
+        None
+    };
+
+    let header = match back_button {
+        Some(back_button) => {
+            container(stack![
+                container(title)
+                    .width(Length::Fill)
+                    .align_x(iced::Alignment::Center),
+                row![back_button]
+                    .align_y(iced::Alignment::Center)
+            ])
+        },
+        None => {
+            container(title)
+                .width(Length::Fill)
+                .align_x(iced::Alignment::Center)
+        }
+    };
+
     let progress_text = match progress {
         DownloadProgress::Preparing => container(text("Preparing download...").size(16)),
         DownloadProgress::Downloading(prog_bar) => {
-            let range = 0f32..=prog_bar.total as f32;
-            let current_progress = prog_bar.current as f32;
-            let percent = if prog_bar.total > 0 { current_progress / prog_bar.total as f32 * 100.0 } else { 0.0 };
-            container(column![
-                text(prog_bar.phase.to_string()).size(32),
-                row![
-                    progress_bar(range, current_progress),
-                    text(format!("{percent:>6.2}% ({}/{} pages)", prog_bar.current, prog_bar.total))
-                        .size(16).font(iced::Font::MONOSPACE)
-                ]
-            ])
+            prog_bar.as_gui_element()
         }
         DownloadProgress::Complete => container(
             text("Download complete!").size(16).style(|theme: &Theme| {
@@ -86,18 +109,8 @@ pub fn download_screen(state: &DownloadState) -> Element<'static, Message> {
 
     let log_view_container = logs_to_container(&state.logs, &DOWNLOAD_LOG_SCROLLABLE_ID, color_override);
 
-    let back_button = if matches!(progress, DownloadProgress::Complete | DownloadProgress::Failed(_)) {
-        Some(
-            button(text("← Back to Main").size(16))
-                .on_press(Message::BackToMain)
-                .padding(8),
-        )
-    } else {
-        None
-    };
-
-    let mut content = column![
-        title, 
+    let content = column![
+        header, 
         Space::new().height(10), 
         progress_text, 
         Space::new().height(20), 
@@ -107,10 +120,6 @@ pub fn download_screen(state: &DownloadState) -> Element<'static, Message> {
         .padding(20)
         .width(Length::Fill)
         .height(Length::Fill);
-
-    if let Some(btn) = back_button {
-        content = content.push(Space::new().height(10)).push(btn);
-    }
 
     container(content)
         .width(Length::Fill)
@@ -129,14 +138,14 @@ impl App {
                         }
                         DownloadEvent::Error(err) => {
                             state.progress = DownloadProgress::Failed(err.clone());
-                            state.logs.push(LogEntry::new_now(format!("CRITICAL ERROR: {}", err)));
+                            state.logs.push(LogEntry::new_error_now(format!("CRITICAL ERROR: {:#?}", err)));
                         }
                         DownloadEvent::ProgressBarUpdate(progress) => {
                             state.progress = DownloadProgress::Downloading(progress);
                         }
                         DownloadEvent::Success => {
                             state.progress = DownloadProgress::Complete;
-                            state.logs.push(LogEntry::new_now("SUCCESS: Firmware downloaded to temp storage. Prompting for save..."));
+                            state.logs.push(LogEntry::new_debug_now("SUCCESS: Firmware downloaded to temp storage. Prompting for save..."));
 
                             // Trigger the Save File Dialog immediately upon success
                             return Task::perform(
@@ -180,13 +189,13 @@ impl App {
                     Ok(path) => {
                         self.toast = Some(crate::ui::toast::Toast::info(format!("Saved to {:?}", path.file_name().unwrap_or_default())));
                         if let AppScreen::Download(state) = &mut self.screen {
-                            state.logs.push(LogEntry::new_now(format!("Saved firmware to {:?}", path)));
+                            state.logs.push(LogEntry::new_info_now(format!("Saved firmware to {:?}", path)));
                         }
                     }
                     Err(err) => {
                         self.toast = Some(crate::ui::toast::Toast::error(&err));
                         if let AppScreen::Download(state) = &mut self.screen {
-                            state.logs.push(LogEntry::new_now(format!("Error saving file: {}", err)));
+                            state.logs.push(LogEntry::new_error_now(format!("Error saving file: {:#?}", err)));
                         }
                     }
                 }
@@ -194,7 +203,7 @@ impl App {
             DownloadScreenMessage::SaveCancelled => {
                 self.toast = Some(crate::ui::toast::Toast::warning("File save cancelled"));
                 if let AppScreen::Download(state) = &mut self.screen {
-                    state.logs.push(LogEntry::new_now("User cancelled file save operation."));
+                    state.logs.push(LogEntry::new_warn_now("User cancelled file save operation."));
                 }
             }
         }

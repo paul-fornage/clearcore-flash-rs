@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use iced::widget::{button, checkbox, column, container, row, scrollable, text, Space, self, operation};
+use iced::widget::{button, checkbox, column, container, row, scrollable, text, Space, self, operation, stack};
 use iced::{clipboard, Background, Border, Color, Element, Length, Task, Theme};
 use iced::border::Radius;
 use iced::widget::scrollable::RelativeOffset;
@@ -7,7 +7,7 @@ use iced_selection::text as selectable_text;
 
 
 use crate::app::App;
-use crate::types::{AppScreen, LogEntry, SerialConfig};
+use crate::types::{AppScreen, LogEntry, LogMsg, SerialConfig};
 use crate::Message;
 use crate::ui::common::logs_to_container;
 use crate::ui::toast::Toast;
@@ -17,7 +17,7 @@ const CONST_SCROLLABLE_ID: widget::Id = widget::Id::new("serial monitor scrollab
 #[derive(Debug, Clone)]
 pub enum MonitorScreenMessage {
     ConnectionStateChanged(MonitorConnectionState),
-    SerialData(String),
+    SerialData(LogMsg),
     JumpToBottom,
     CopyLogs,
     SaveLogs,
@@ -116,9 +116,13 @@ pub fn monitor_screen(monitor_state: &MonitorState) -> Element<'static, Message>
         .on_press(Message::BackToMain)
         .padding(8);
 
-    let header = row![back_button, Space::new().width(20), title]
-        .spacing(10)
-        .align_y(iced::Alignment::Center);
+    let header = stack![
+        container(title)
+            .width(Length::Fill)
+            .align_x(iced::Alignment::Center),
+        row![back_button]
+            .align_y(iced::Alignment::Center)
+    ];
 
     // Banner sits below header, above logs
     let banner = connection_banner(&monitor_state.connection_state);
@@ -170,10 +174,7 @@ impl App{
             AppScreen::Monitor(ref mut monitor_state) => {
                 match msg {
                     MonitorScreenMessage::SerialData(line) => {
-                        let trimmed = line.trim_end();
-                        if !trimmed.is_empty() {
-                            monitor_state.logs.push(LogEntry::new_now(trimmed.to_string()));
-                        }
+                        monitor_state.logs.push(LogEntry::new_now(line));
                     }
                     MonitorScreenMessage::ConnectionStateChanged(new_state) => {
                         monitor_state.connection_state = new_state;

@@ -1,7 +1,7 @@
 use futures::SinkExt;
 use std::fmt::{Debug, Display, Formatter};
 use std::time::Duration;
-use crate::types::UsbId;
+use crate::types::{LogMsg, LogMsgType, UsbId};
 use anyhow::{Context, Result};
 use iced::futures::channel::mpsc;
 use tokio::time::timeout;
@@ -12,45 +12,6 @@ pub mod upload;
 pub mod download;
 
 
-#[derive(Debug, Clone)]
-pub struct LogMsg {
-    pub message: String,
-    pub log_type: LogMsgType,
-}
-impl LogMsg {
-    pub fn new_bossa(message: impl Into<String>) -> Self {
-        Self { message: message.into(), log_type: LogMsgType::BossaNative }
-    }
-    pub fn new(log_type: LogMsgType, message: impl Into<String>) -> Self {
-        Self { message: message.into(), log_type: log_type }
-    }
-}
-
-impl Display for LogMsg {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if matches!(self.log_type, LogMsgType::BossaNative) {
-            write!(f, "{}", self.message)
-        } else {
-            write!(f, "{:?}: {}", self.log_type, self.message)
-        }
-    }
-}
-
-impl Into<String> for LogMsg {
-    fn into(self) -> String {
-        format!("{}", self)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum LogMsgType{
-    BossaNative,
-    Trace,
-    Debug,
-    Info,
-    Warn,
-    Error,
-}
 
 
 
@@ -68,7 +29,7 @@ macro_rules! log_send {
             LogMsgType::Info => log::info!("{}", msg),
             LogMsgType::Debug => log::debug!("{}", msg),
             LogMsgType::Trace => log::trace!("{}", msg),
-            LogMsgType::BossaNative => eprint!("{}", msg),
+            _ => eprint!("{}", msg),
         }
 
         log_minor_err($output.send(LogMsg::new(LogMsgType::$level, msg).into()).await);
@@ -86,7 +47,7 @@ macro_rules! log_send_blocking {
             LogMsgType::Info => log::info!("{}", msg),
             LogMsgType::Debug => log::debug!("{}", msg),
             LogMsgType::Trace => log::trace!("{}", msg),
-            LogMsgType::BossaNative => eprint!("{}", msg),
+            _ => eprint!("{}", msg),
         }
 
         log_minor_err($output.send(LogMsg::new(LogMsgType::$level, msg).into()));

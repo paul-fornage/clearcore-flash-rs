@@ -3,6 +3,7 @@ use anyhow::Result;
 use iced::futures::{SinkExt, Stream};
 use iced::{stream, Subscription};
 use std::time::Duration;
+use futures::channel::mpsc::SendError;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio_serial::{SerialPort, SerialPortBuilderExt};
 use iced::futures::channel::mpsc;
@@ -10,13 +11,13 @@ use tokio_util::codec::{Decoder, Encoder};
 use futures::stream::StreamExt;
 use tokio_util::bytes::BytesMut;
 use crate::serial::{find_port_async, log_minor_err};
-use crate::types::{SerialConfig, UsbId};
+use crate::types::{LogMsg, LogMsgType, SerialConfig, UsbId};
 use crate::ui::monitor_screen::MonitorConnectionState;
 
 #[derive(Debug, Clone)]
 pub enum SerialMonitorEvent {
     StateChange(MonitorConnectionState),
-    Data(String),
+    Data(LogMsg),
 }
 
 
@@ -112,9 +113,18 @@ fn connect_and_listen() -> impl Stream<Item =SerialMonitorEvent> {
                                 break; // Break read loop, go back to search loop
                             }
                             Ok(_) => {
-                                log::trace!("Received serial data: {}", line);
-                                if output.send(SerialMonitorEvent::Data(line.clone())).await.is_err() {
-                                    return; // Listener cancelled (UI changed screens), stop everything.
+                                let line_trimmed = line.trim();
+                                log::trace!("Received serial data: {}", line_trimmed);
+                                match output.send(SerialMonitorEvent::Data(LogMsg::new_cc(line_trimmed))).await {
+                                    Ok(_) => {}
+                                    Err(e) => if e.is_disconnected() {
+                                        log::warn!("Serial output disconnected, dropping data: {}", line_trimmed);
+                                        return; // Listener cancelled (UI changed screens), stop everything.
+                                    } else {
+                                        log::error!("unexpected Serial output buffer error: {e:?}\n\
+                                            dropping data: {}", line_trimmed);
+                                    }
+
                                 }
                             }
                             Err(e) => {

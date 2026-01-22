@@ -11,8 +11,8 @@ use iced::{stream, Subscription};
 use iced::futures::channel::mpsc;
 use tokio_serial::{SerialPort, SerialPortBuilderExt, SerialPortInfo, SerialPortType};
 use cxx::{let_cxx_string, type_id, CxxString, ExternType};
-use crate::types::{SerialConfig, UsbId};
-use crate::serial::{find_port_async, LogMsg, LogMsgType, TEKNIC_BOOTLOADER_OFFSET_ADDRESS};
+use crate::types::{LogMsg, LogMsgType, SerialConfig, UsbId};
+use crate::serial::{find_port_async, TEKNIC_BOOTLOADER_OFFSET_ADDRESS};
 use std::str;
 
 use bossa;
@@ -28,7 +28,7 @@ static LOG_SENDER: Mutex<Option<tokio::sync::mpsc::UnboundedSender<UploadEvent>>
 pub enum UploadEvent {
     Log(LogMsg),
     Error(String),
-    ProgressBarUpdate(ProgressBar),
+    ProgressBarUpdate(UploadProgressBar),
     Success,
 }
 
@@ -72,28 +72,12 @@ impl Display for UploadPhase {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProgressBar{
+pub struct UploadProgressBar {
     pub phase: UploadPhase,
     pub current: u32,
     pub total: u32,
 }
 
-impl ProgressBar{
-    pub fn loading_bar_string(&self) -> String{
-        const PROGRESS_BAR_WIDTH: usize = 32;
-        let mut progress = self.current as f64 / self.total as f64;
-        if progress < 0.0 { progress = 0.0; }
-        if progress > 1.0 { progress = 1.0; }
-        let percent = progress * 100.0;
-        let progress_bar_len = (progress * PROGRESS_BAR_WIDTH as f64).round() as usize;
-
-        let mut progress_bar: [u8; PROGRESS_BAR_WIDTH] = [b' '; PROGRESS_BAR_WIDTH];
-        progress_bar[..progress_bar_len].fill(b'=');
-        let progress_str = str::from_utf8(&progress_bar).unwrap();
-
-        format!("[{progress_str}] {percent:>6.2}% ({}/{})", self.current, self.total)
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 struct ProgressState {
@@ -110,6 +94,8 @@ impl ProgressState {
             total: 100,
         }
     }
+
+
 }
 
 
@@ -187,7 +173,7 @@ async fn upload_firmware(output: &mut mpsc::Sender<UploadEvent>, port_name: &str
         tokio::select! {
             _ = ticker.tick() => {
                  if let Ok(state) = PROGRESS_STATE.lock() {
-                     let _ = output.try_send(UploadEvent::ProgressBarUpdate(ProgressBar {
+                     let _ = output.try_send(UploadEvent::ProgressBarUpdate(UploadProgressBar {
                          phase: state.phase,
                          current: state.current,
                          total: state.total

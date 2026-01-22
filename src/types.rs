@@ -1,6 +1,7 @@
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Formatter};
 use std::path::PathBuf;
 use chrono::{DateTime, Local};
+use iced::Color;
 use tokio_serial::UsbPortInfo;
 use crate::ui::download_screen::DownloadState;
 use crate::ui::monitor_screen::MonitorState;
@@ -56,21 +57,116 @@ impl SerialConfig {
 
 impl Default for SerialConfig { fn default() -> Self { Self::SERIAL_MONITOR } }
 
+
+#[derive(Debug, Clone)]
+pub struct LogMsg {
+    pub message: String,
+    pub log_type: LogMsgType,
+}
+impl LogMsg {
+    pub fn new_cc(message: impl Into<String>) -> Self {
+        Self { message: message.into(), log_type: LogMsgType::ClearCore }
+    }
+    pub fn new_bossa(message: impl Into<String>) -> Self {
+        Self { message: message.into(), log_type: LogMsgType::BossaNative }
+    }
+    pub fn new_trace(message: impl Into<String>) -> Self {
+        Self { message: message.into(), log_type: LogMsgType::Trace }
+    }
+    pub fn new_debug(message: impl Into<String>) -> Self {
+        Self { message: message.into(), log_type: LogMsgType::Debug }
+    }
+    pub fn new_info(message: impl Into<String>) -> Self {
+        Self { message: message.into(), log_type: LogMsgType::Info }
+    }
+    pub fn new_warn(message: impl Into<String>) -> Self {
+        Self { message: message.into(), log_type: LogMsgType::Warn }
+    }
+    pub fn new_error(message: impl Into<String>) -> Self {
+        Self { message: message.into(), log_type: LogMsgType::Error }
+    }
+    pub fn new(log_type: LogMsgType, message: impl Into<String>) -> Self {
+        Self { message: message.into(), log_type: log_type }
+    }
+}
+
+impl Display for LogMsg {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if matches!(self.log_type, LogMsgType::BossaNative) {
+            write!(f, "{}", self.message)
+        } else {
+            write!(f, "{:?}: {}", self.log_type, self.message)
+        }
+    }
+}
+
+impl Into<String> for LogMsg {
+    fn into(self) -> String {
+        format!("{}", self)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum LogMsgType{
+    BossaNative,
+    ClearCore,
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl LogMsgType{
+    pub fn as_str(&self) -> &'static str {
+        match self{
+            LogMsgType::Trace => "TRACE: ",
+            LogMsgType::Debug => "DEBUG: ",
+            LogMsgType::Info => "INFO: ",
+            LogMsgType::Warn => "WARN: ",
+            LogMsgType::Error => "ERROR: ",
+            _ => ""
+        }
+    }
+}
+
+
 /// Log entry for displaying serial output
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct LogEntry {
     pub timestamp: DateTime<Local>,
-    pub message: String,
+    pub message: LogMsg,
 }
 
 impl LogEntry {
-    pub fn new_now(message: impl Into<String>) -> Self {
+    pub fn new_error_now(message: impl Into<String>) -> Self {
+        Self::new_now(LogMsg::new_error(message))
+    }
+    pub fn new_warn_now(message: impl Into<String>) -> Self {
+        Self::new_now(LogMsg::new_warn(message))
+    }
+    pub fn new_info_now(message: impl Into<String>) -> Self {
+        Self::new_now(LogMsg::new_info(message))
+    }
+    pub fn new_debug_now(message: impl Into<String>) -> Self {
+        Self::new_now(LogMsg::new_debug(message))
+    }
+    pub fn new_trace_now(message: impl Into<String>) -> Self {
+        Self::new_now(LogMsg::new_trace(message))
+    }
+    pub fn new_bossa_now(message: impl Into<String>) -> Self {
+        Self::new_now(LogMsg::new_bossa(message))
+    }
+    pub fn new_cc_now(message: impl Into<String>) -> Self {
+        Self::new_now(LogMsg::new_cc(message))
+    }
+    pub fn new_now(message: LogMsg) -> Self {
         Self {
             timestamp: Local::now(),
             message: message.into(),
         }
     }
-    pub fn new(timestamp: DateTime<Local>, message: String) -> Self {
+    pub fn new(timestamp: DateTime<Local>, message: LogMsg) -> Self {
         Self {
             timestamp,
             message,
@@ -83,8 +179,12 @@ impl LogEntry {
 }
 
 impl Display for LogEntry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}] {}", self.format_timestamp(), self.message)
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] {}{}",
+            self.format_timestamp(),
+            self.message.log_type.as_str(),
+            self.message.message.trim())
     }
 }
+
 

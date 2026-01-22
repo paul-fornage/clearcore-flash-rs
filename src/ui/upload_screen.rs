@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 use std::time::Duration;
-use iced::widget::{button, column, container, progress_bar, row, scrollable, text, Space};
-use iced::{widget, Color, Element, Length, Task, Theme};
+use iced::widget::{button, column, container, progress_bar, row, scrollable, stack, text, Container, Space};
+use iced::{widget, Color, Element, Length, Renderer, Task, Theme};
 use iced_selection::text as selectable_text;
 use crate::app::App;
 use crate::types::{AppScreen, LogEntry};
 use crate::{serial, Message};
-use crate::serial::upload::UploadEvent;
-use crate::ui::common::logs_to_container;
+use crate::serial::upload::{UploadEvent, UploadProgressBar};
+use crate::ui::common::{logs_to_container, prog_bar};
 use crate::ui::MainScreenMessage;
 
 #[derive(Debug, Clone)]
@@ -18,7 +18,7 @@ pub enum UploadScreenMessage {
 const UPLOAD_LOG_SCROLLABLE_ID: widget::Id = widget::Id::new("upload_log_scrollable_id");
 
 /// Upload state and progress
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct UploadState {
     pub file_path: PathBuf,
     pub progress: UploadProgress,
@@ -40,9 +40,15 @@ impl UploadState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum UploadProgress {
     Preparing,
-    Uploading(serial::upload::ProgressBar),
+    Uploading(UploadProgressBar),
     Complete,
     Failed(String),
+}
+
+impl UploadProgressBar {
+    pub fn as_gui_element(&self) -> Container<'static, Message, Theme, Renderer> {
+        prog_bar(self.total, self.current, &self.phase.to_string())
+    }
 }
 
 /// Render the upload screen with progress and logs
@@ -55,20 +61,37 @@ pub fn upload_screen(state: &UploadState) -> Element<'static, Message> {
             color: Some(theme.palette().primary),
         });
 
+    let back_button = if matches!(progress, UploadProgress::Complete | UploadProgress::Failed(_)) {
+        Some(
+            button(text("← Back to Main").size(16))
+                .on_press(Message::BackToMain)
+                .padding(8),
+        )
+    } else {
+        None
+    };
+
+    let header = match back_button {
+        Some(back_button) => {
+            container(stack![
+                container(title)
+                    .width(Length::Fill)
+                    .align_x(iced::Alignment::Center),
+                row![back_button]
+                    .align_y(iced::Alignment::Center)
+            ])
+        },
+        None => {
+            container(title)
+                .width(Length::Fill)
+                .align_x(iced::Alignment::Center)
+        }
+    };
+
     let progress_text = match progress {
         UploadProgress::Preparing => container(text("Preparing upload...").size(16)),
         UploadProgress::Uploading ( prog_bar ) => {
-            let range = 0f32..=prog_bar.total as f32;
-            let current_progress = prog_bar.current as f32;
-            let percent = current_progress / prog_bar.total as f32 * 100.0;
-            container(column![
-                text(prog_bar.phase.to_string()).size(32),
-                row![
-                    progress_bar(range, current_progress),
-                    text(format!("{percent:>6.2}% ({}/{} pages)", prog_bar.current, prog_bar.total))
-                        .size(16).font(iced::Font::MONOSPACE)
-                ]
-            ])
+            prog_bar.as_gui_element()
         }
         UploadProgress::Complete => container(
             text("Upload complete!").size(16).style(|theme: &Theme| {
@@ -90,21 +113,13 @@ pub fn upload_screen(state: &UploadState) -> Element<'static, Message> {
     };
     let log_view_container = logs_to_container(&state.logs, &UPLOAD_LOG_SCROLLABLE_ID, color_override);
 
-    let back_button = if matches!(progress, UploadProgress::Complete | UploadProgress::Failed(_)) {
-        Some(
-            button(text("← Back to Main").size(16))
-                .on_press(Message::BackToMain)
-                .padding(8),
-        )
-    } else {
-        None
-    };
 
-    let mut content = column![
-        title, 
-        Space::new().height(10), 
-        progress_text, 
-        Space::new().height(20), 
+
+    let content = column![
+        header,
+        Space::new().height(10),
+        progress_text,
+        Space::new().height(20),
         log_view_container
     ]
         .spacing(10)
@@ -112,9 +127,6 @@ pub fn upload_screen(state: &UploadState) -> Element<'static, Message> {
         .width(Length::Fill)
         .height(Length::Fill);
 
-    if let Some(btn) = back_button {
-        content = content.push(Space::new().height(10)).push(btn);
-    }
 
     container(content)
         .width(Length::Fill)
@@ -134,14 +146,14 @@ impl App{
                         }
                         UploadEvent::Error(err) => {
                             state.progress = UploadProgress::Failed(err.clone());
-                            state.logs.push(LogEntry::new_now(format!("CRITICAL ERROR: {}", err)));
+                            state.logs.push(LogEntry::new_error_now(format!("CRITICAL ERROR: {}", err)));
                         }
                         UploadEvent::ProgressBarUpdate(progress) => {
                             state.progress = UploadProgress::Uploading(progress);
                         }
                         UploadEvent::Success => {
                             state.progress = UploadProgress::Complete;
-                            state.logs.push(LogEntry::new_now("SUCCESS: Firmware uploaded successfully."));
+                            state.logs.push(LogEntry::new_info_now("SUCCESS: Firmware uploaded successfully."));
 
                             if state.monitor_after {
                                 // Transition to monitor screen automatically
