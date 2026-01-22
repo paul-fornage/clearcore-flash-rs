@@ -1,6 +1,4 @@
 use iced::{Element, Task, Theme, Subscription};
-use std::path::PathBuf;
-use std::time::Duration;
 
 use crate::serial;
 use crate::serial::upload::UploadConfig;
@@ -19,20 +17,19 @@ pub struct App {
 #[derive(Debug, Clone)]
 pub enum Message {
     // Main screen
-    MainScreen(ui::main_screen::MainScreenMessage),
+    MainScreen(ui::MainScreenMessage),
 
     // Upload screen
-    UploadScreen(ui::upload_screen::UploadScreenMessage),
+    UploadScreen(ui::UploadScreenMessage),
 
-    DownloadScreen(ui::download_screen::DownloadScreenMessage),
+    DownloadScreen(ui::DownloadScreenMessage),
 
     // Monitor screen
-    MonitorScreen(ui::monitor_screen::MonitorScreenMessage),
+    MonitorScreen(ui::MonitorScreenMessage),
 
     // Global
     BackToMain,
     CloseToast,
-    Tick,
 }
 
 impl App {
@@ -82,10 +79,6 @@ impl App {
             Message::CloseToast => {
                 self.toast = None;
             }
-
-            Message::Tick => {
-                // Handled by subscription now
-            }
         }
 
         Task::none()
@@ -98,10 +91,10 @@ impl App {
             AppScreen::Monitor(_) => {
                 serial::monitor::listen().map(|event| match event {
                     serial::monitor::SerialMonitorEvent::Data(line) => {
-                        Message::MonitorScreen(ui::monitor_screen::MonitorScreenMessage::SerialData(line))
+                        Message::MonitorScreen(ui::MonitorScreenMessage::SerialData(line))
                     }
                     serial::monitor::SerialMonitorEvent::StateChange(state) => {
-                        Message::MonitorScreen(ui::monitor_screen::MonitorScreenMessage::ConnectionStateChanged(state))
+                        Message::MonitorScreen(ui::MonitorScreenMessage::ConnectionStateChanged(state))
                     }
                 })
             }
@@ -116,7 +109,7 @@ impl App {
                     };
 
                     serial::upload::listen(config).map(|event| {
-                        Message::UploadScreen(ui::upload_screen::UploadScreenMessage::Event(event))
+                        Message::UploadScreen(ui::UploadScreenMessage::Event(event))
                     })
                 }
             }
@@ -127,7 +120,7 @@ impl App {
                     Subscription::none()
                 } else {
                     serial::download::listen().map(|event| {
-                        Message::DownloadScreen(ui::download_screen::DownloadScreenMessage::Event(event))
+                        Message::DownloadScreen(ui::DownloadScreenMessage::Event(event))
                     })
                 }
             }

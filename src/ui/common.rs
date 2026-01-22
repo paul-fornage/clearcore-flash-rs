@@ -5,7 +5,6 @@ use crate::types::{LogEntry, LogMsgType};
 use iced_selection::rich_text as selectable_rich_text;
 use iced_selection::span as selectable_span;
 use iced_selection::text::Span as SelectableSpan;
-use iced_selection::text as selectable_text;
 use crate::app::Message;
 
 pub fn logs_to_container(

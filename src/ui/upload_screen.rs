@@ -1,11 +1,10 @@
 use std::path::PathBuf;
 use std::time::Duration;
-use iced::widget::{button, column, container, progress_bar, row, scrollable, stack, text, Container, Space};
+use iced::widget::{button, column, container, row, stack, text, Container, Space};
 use iced::{widget, Color, Element, Length, Renderer, Task, Theme};
-use iced_selection::text as selectable_text;
 use crate::app::App;
 use crate::types::{AppScreen, LogEntry};
-use crate::{serial, Message};
+use crate::Message;
 use crate::serial::upload::{UploadEvent, UploadProgressBar};
 use crate::ui::common::{logs_to_container, prog_bar};
 use crate::ui::MainScreenMessage;

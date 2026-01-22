@@ -550,7 +550,6 @@ dependencies = [
  "iced_selection",
  "log",
  "rfd",
- "temp-dir",
  "tokio",
  "tokio-serial",
  "tokio-util",
@@ -3110,12 +3109,6 @@ checksum = "8eab9a99a024a169fe8a903cf9d4a3b3601109bcc13bd9e3c6fff259138626c4"
 dependencies = [
  "libc",
 ]
-
-[[package]]
-name = "temp-dir"
-version = "0.1.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83176759e9416cf81ee66cb6508dbfe9c96f20b8b56265a39917551c23c70964"
 
 [[package]]
 name = "tempfile"

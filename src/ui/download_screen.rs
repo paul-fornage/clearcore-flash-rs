@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use iced::widget::{button, column, container, progress_bar, row, stack, text, Container, Space};
+use iced::widget::{button, column, container, row, stack, text, Container, Space};
 use iced::{widget, Color, Element, Length, Renderer, Task, Theme};
 use crate::app::App;
 use crate::types::{AppScreen, LogEntry};

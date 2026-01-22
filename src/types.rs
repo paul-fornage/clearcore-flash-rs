@@ -1,7 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
-use std::path::PathBuf;
 use chrono::{DateTime, Local};
-use iced::Color;
 use tokio_serial::UsbPortInfo;
 use crate::ui::download_screen::DownloadState;
 use crate::ui::monitor_screen::MonitorState;
@@ -15,8 +13,6 @@ pub enum AppScreen {
     Monitor(MonitorState),
     Download(DownloadState),
 }
-
-
 
 
 #[derive(Clone, Copy, PartialEq, Eq)]
