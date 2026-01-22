@@ -6,6 +6,7 @@ use crate::app::App;
 use crate::types::{AppScreen, LogEntry, SerialConfig};
 use crate::ui::monitor_screen::MonitorState;
 use crate::ui::upload_screen::{UploadProgress, UploadState};
+use crate::ui::download_screen::DownloadState;
 
 #[derive(Debug, Clone)]
 pub enum MainScreenMessage {
@@ -13,6 +14,7 @@ pub enum MainScreenMessage {
     FileSelected(Option<std::path::PathBuf>),
     SetMonitorAfterUpload(bool),
     StartMonitoring,
+    StartDownload,
 }
 
 /// Render the main screen with upload and monitor buttons
@@ -43,6 +45,16 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
     ]
         .spacing(12);
 
+    let download_button = button(
+        text("Download Firmware")
+            .size(18)
+            .width(Length::Fill)
+            .center()
+    )
+        .on_press(Message::MainScreen(MainScreenMessage::StartDownload))
+        .padding(16)
+        .width(Length::Fixed(200.0));
+
     let monitor_button = button(
         text("Monitor Serial")
             .size(18)
@@ -53,7 +65,15 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
         .padding(16)
         .width(Length::Fixed(200.0));
 
-    let content = column![title, Space::new().height(30), upload_section, Space::new().height(20), monitor_button]
+    let content = column![
+        title,
+        Space::new().height(30),
+        upload_section,
+        Space::new().height(10),
+        download_button,
+        Space::new().height(20),
+        monitor_button
+    ]
         .spacing(10)
         .padding(40)
         .width(Length::Fill)
@@ -68,7 +88,7 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
 }
 
 impl App{
-    
+
     pub fn handle_main_screen_message(&mut self, msg: MainScreenMessage) -> Task<Message> {
         match msg {
             MainScreenMessage::SelectFile => {
@@ -105,6 +125,11 @@ impl App{
             MainScreenMessage::StartMonitoring => {
                 log::info!("Starting serial monitor...");
                 self.screen = AppScreen::Monitor(MonitorState::default());
+            }
+
+            MainScreenMessage::StartDownload => {
+                log::info!("Starting firmware download...");
+                self.screen = AppScreen::Download(DownloadState::new());
             }
         }
         Task::none()

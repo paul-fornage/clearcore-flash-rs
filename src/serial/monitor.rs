@@ -9,7 +9,7 @@ use iced::futures::channel::mpsc;
 use tokio_util::codec::{Decoder, Encoder};
 use futures::stream::StreamExt;
 use tokio_util::bytes::BytesMut;
-use crate::serial::find_port_async;
+use crate::serial::{find_port_async, log_minor_err};
 use crate::types::{SerialConfig, UsbId};
 use crate::ui::monitor_screen::MonitorConnectionState;
 
@@ -48,12 +48,13 @@ fn connect_and_listen() -> impl Stream<Item =SerialMonitorEvent> {
         // This loop handles the connection lifecycle (Auto-reconnect)
         loop {
             // 1. Find the port asynchronously (retries internally if needed, or we retry here)
-            let port_name = match find_port_async(&config.usb_id).await {
-                Ok(name) => name,
+            let port_info = match find_port_async(config.usb_id).await {
+                Ok(info) => info,
                 Err(e) => {
-                    match find_port_async(&UsbId::CLEARCORE_BOOTLOADER).await {
-                        Ok(name) => {
-                            log::error!("Failed to find ClearCore serial port: {e}, but found bootloader!: {name}");
+                    match find_port_async(UsbId::CLEARCORE_BOOTLOADER).await {
+                        Ok(info) => {
+                            let name = info.port_name;
+                            log::error!("Failed to find ClearCore serial port: {e:?}, but found bootloader!: {name}");
                             state_change(&mut output, MonitorConnectionState::Error(
                                 format!("Failed to find ClearCore serial port, \
                                     but found the bootloader at {name}. Power cycle clearcore to \
@@ -61,9 +62,9 @@ fn connect_and_listen() -> impl Stream<Item =SerialMonitorEvent> {
                             )).await;
                         },
                         Err(e) => {
-                            log::error!("Failed to find ClearCore serial port: {e}");
+                            log::error!("Failed to find ClearCore serial port: {e:?}");
                             state_change(&mut output, MonitorConnectionState::Error(
-                                format!("Failed to find ClearCore serial port: {e}")
+                                format!("Failed to find ClearCore serial port: {e:?}")
                             )).await;
                         }
                     }
@@ -72,7 +73,8 @@ fn connect_and_listen() -> impl Stream<Item =SerialMonitorEvent> {
                     continue;
                 }
             };
-            log::info!("ClearCore serial port found: {}", port_name);
+            let port_name = port_info.port_name;
+            log::info!("ClearCore serial port found: {}", &port_name);
 
             // 2. Report we are connecting
             state_change(&mut output, MonitorConnectionState::Connecting(port_name.clone())).await;
@@ -126,7 +128,7 @@ fn connect_and_listen() -> impl Stream<Item =SerialMonitorEvent> {
                 }
                 Err(e) => {
                     // Connection failed immediately
-                    log::warn!("Failed to open serial port: {}", e);
+                    log::warn!("Failed to open serial port: {e:?}");
                     state_change(&mut output,
                                  MonitorConnectionState::Error(e.to_string())).await;
                 }
@@ -139,10 +141,4 @@ fn connect_and_listen() -> impl Stream<Item =SerialMonitorEvent> {
                          MonitorConnectionState::Searching).await;
         }
     })
-}
-
-fn log_minor_err<E: Display>(res: Result<(), E>) {
-    if let Err(err) = res {
-        log::warn!("{}", err);
-    }
 }

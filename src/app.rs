@@ -24,6 +24,8 @@ pub enum Message {
     // Upload screen
     UploadScreen(ui::upload_screen::UploadScreenMessage),
 
+    DownloadScreen(ui::download_screen::DownloadScreenMessage),
+    
     // Monitor screen
     MonitorScreen(ui::monitor_screen::MonitorScreenMessage),
 
@@ -49,6 +51,7 @@ impl App {
         match self.screen {
             AppScreen::Main => "ClearCore Flasher".to_string(),
             AppScreen::Upload(_) => "ClearCore Flasher - Upload".to_string(),
+            AppScreen::Download(_) => "ClearCore Flasher - Download".to_string(),
             AppScreen::Monitor(_) => "ClearCore Flasher - Monitor".to_string(),
         }
     }
@@ -61,6 +64,10 @@ impl App {
 
             Message::UploadScreen(msg) => {
                 return self.handle_upload_screen_message(msg);
+            }
+
+            Message::DownloadScreen(msg) => {
+                return self.handle_download_screen_message(msg);
             }
 
             Message::MonitorScreen(msg) => {
@@ -113,6 +120,17 @@ impl App {
                     })
                 }
             }
+            AppScreen::Download(state) => {
+                // Stop subscription if we are done or failed.
+                // Note: Success state in download means file is in temp, we stop listening to serial events
+                if matches!(state.progress, ui::download_screen::DownloadProgress::Complete | ui::download_screen::DownloadProgress::Failed(_)) {
+                    Subscription::none()
+                } else {
+                    serial::download::listen().map(|event| {
+                        Message::DownloadScreen(ui::download_screen::DownloadScreenMessage::Event(event))
+                    })
+                }
+            }
             _ => Subscription::none(),
         }
     }
@@ -121,6 +139,7 @@ impl App {
         let view = match &self.screen {
             AppScreen::Main => ui::main_screen(self.monitor_after_upload),
             AppScreen::Upload(state) => ui::upload_screen(state),
+            AppScreen::Download(state) => ui::download_screen(state),
             AppScreen::Monitor(monitor_state) => ui::monitor_screen(monitor_state),
         };
 

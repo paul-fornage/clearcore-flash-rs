@@ -1,3 +1,4 @@
+use crate::serial::{get_or_touch_to_bootloader, log_minor_err, touch_to_bootloader, wait_for_serial_port};
 use std::ffi::{CStr, CString};
 use std::fmt::{Display, Formatter};
 use std::os::raw::c_char;
@@ -11,49 +12,17 @@ use iced::futures::channel::mpsc;
 use tokio_serial::{SerialPort, SerialPortBuilderExt, SerialPortInfo, SerialPortType};
 use cxx::{let_cxx_string, type_id, CxxString, ExternType};
 use crate::types::{SerialConfig, UsbId};
-use crate::serial::find_port_async;
+use crate::serial::{find_port_async, LogMsg, LogMsgType, TEKNIC_BOOTLOADER_OFFSET_ADDRESS};
 use std::str;
 
 use bossa;
 
 use tokio::time::timeout;
+use crate::{log_send, log_send_blocking};
 
 static PROGRESS_STATE: Mutex<ProgressState> = Mutex::new(ProgressState::new());
 static LOG_SENDER: Mutex<Option<tokio::sync::mpsc::UnboundedSender<UploadEvent>>> = Mutex::new(None);
 
-macro_rules! log_send {
-    ($output:expr, $level:ident, $($arg:tt)+) => {{
-        let msg = format!($($arg)+);
-
-        match LogMsgType::$level {
-            LogMsgType::Error => log::error!("{}", msg),
-            LogMsgType::Warn => log::warn!("{}", msg),
-            LogMsgType::Info => log::info!("{}", msg),
-            LogMsgType::Debug => log::debug!("{}", msg),
-            LogMsgType::Trace => log::trace!("{}", msg),
-            LogMsgType::BossaNative => eprint!("{}", msg),
-        }
-
-        log_minor_err($output.send(UploadEvent::log(LogMsgType::$level, msg)).await);
-    }};
-}
-
-macro_rules! log_send_blocking {
-    ($output:expr, $level:ident, $($arg:tt)+) => {{
-        let msg = format!($($arg)+);
-
-        match LogMsgType::$level {
-            LogMsgType::Error => log::error!("{}", msg),
-            LogMsgType::Warn => log::warn!("{}", msg),
-            LogMsgType::Info => log::info!("{}", msg),
-            LogMsgType::Debug => log::debug!("{}", msg),
-            LogMsgType::Trace => log::trace!("{}", msg),
-            LogMsgType::BossaNative => eprint!("{}", msg),
-        }
-
-        log_minor_err($output.send(UploadEvent::log(LogMsgType::$level, msg)));
-    }};
-}
 
 #[derive(Debug, Clone)]
 pub enum UploadEvent {
@@ -65,7 +34,13 @@ pub enum UploadEvent {
 
 impl UploadEvent {
     pub fn log(log_type: LogMsgType, message: impl Into<String>) -> Self {
-        Self::Log(LogMsg{message: message.into(), log_type})
+        Self::Log(LogMsg::new(log_type, message))
+    }
+}
+
+impl From<LogMsg> for UploadEvent {
+    fn from(log: LogMsg) -> Self {
+        UploadEvent::Log(log)
     }
 }
 
@@ -118,8 +93,6 @@ impl ProgressBar{
 
         format!("[{progress_str}] {percent:>6.2}% ({}/{})", self.current, self.total)
     }
-    
-    
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -139,39 +112,7 @@ impl ProgressState {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct LogMsg {
-    pub message: String,
-    pub log_type: LogMsgType,
-}
 
-impl Display for LogMsg {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if matches!(self.log_type, LogMsgType::BossaNative) {
-            write!(f, "{}", self.message)
-        } else {
-            write!(f, "{:?}: {}", self.log_type, self.message)
-        }
-    }
-}
-
-impl Into<String> for LogMsg {
-    fn into(self) -> String {
-        format!("{}", self)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum LogMsgType{
-    BossaNative,
-    Trace,
-    Debug,
-    Info,
-    Warn,
-    Error,
-}
-
-pub const TEKNIC_BOOTLOADER_OFFSET_ADDRESS: u32 = 0x4000;
 
 pub fn listen(config: UploadConfig) -> Subscription<UploadEvent> {
     Subscription::run_with(config.clone(), {
@@ -201,22 +142,7 @@ async fn execute_upload_sequence(output: &mut mpsc::Sender<UploadEvent>, config:
         anyhow::bail!("Firmware file not found: {:?}", config.file_path);
     }
 
-    let bootloader_port_info = if let Ok(cc_serial_port_info) = find_serial_port(UsbId::CLEARCORE_SERIAL).await{
-        log_send!(output, Info, "cc serial port found");
-        let cc_bootloader_port_info = touch_to_bootloader(output, &cc_serial_port_info).await
-            .context("Failed to touch cc serial port to bootloader")?;
-        log_send!(output, Info, "cc touched to bootloader, waiting 1 second");
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        cc_bootloader_port_info
-    } else {
-        if let Ok(cc_bootloader_port_info) = find_serial_port(UsbId::CLEARCORE_BOOTLOADER).await {
-            log_send!(output, Warn, "Clearcore already in bootloader mode, skipping touching to bootloader");
-            cc_bootloader_port_info
-        } else {
-            log_send!(output, Error, "Failed to find cc serial port");
-            anyhow::bail!("Failed to find cc serial port");
-        }
-    };
+    let bootloader_port_info = get_or_touch_to_bootloader(output).await?;
 
 
     let firmware_path = std::path::absolute(config.file_path.clone())
@@ -412,110 +338,5 @@ extern "C" fn prog_observer_fn(current: i32, total: i32) {
     if let Ok(mut state) = PROGRESS_STATE.lock() {
         state.current = current as u32;
         state.total = total as u32;
-    }
-}
-
-
-async fn touch_to_bootloader(output: &mut mpsc::Sender<UploadEvent>, cc_serial_port_info: &SerialPortInfo) -> Result<SerialPortInfo> {
-    let port_name = cc_serial_port_info.port_name.clone();
-    match tokio_serial::new(&port_name, 1200).open_native_async(){
-        Ok(cc_serial_port) => {
-            log_send!(output, Info, "cc serial port opened");
-
-            drop(cc_serial_port);
-
-            log_send!(output, Info, "cc serial port closed");
-        },
-        Err(e) => {
-            log_send!(output, Error, "Failed to open cc serial port at 1200bps: {} \n\
-            This might not be a problem on windows. Error: {}", &port_name, e);
-        }
-    }
-
-
-
-    timeout(Duration::from_secs(5), wait_for_serial_port_disconnect(UsbId::CLEARCORE_SERIAL))
-        .await.context("Timed out waiting for cc serial port disconnect")?
-        .context("unexpected error while waiting for serial port to disconnect after touching")?;
-
-    log_send!(output, Info, "cc serial disconnected");
-
-    let bootloader_port = timeout(
-        Duration::from_secs(10), wait_for_serial_port(UsbId::CLEARCORE_BOOTLOADER)
-    ).await.context("Timed out waiting for cc bootloader port")?
-        .context("unexpected error while waiting for bootloader port to appear after touching")?;
-
-    log::info!("cc bootloader found");
-
-    Ok(bootloader_port)
-}
-
-pub async fn wait_for_serial_port(usb_id: UsbId) -> Result<SerialPortInfo> {
-    loop {
-        let ports = tokio_serial::available_ports()?;
-        if let Some(port) = ports.iter().find(|&port| { is_specified_port(port, usb_id) }) {
-            return Ok(port.clone());
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-}
-
-
-pub async fn wait_for_serial_port_disconnect(usb_id: UsbId) -> Result<()> {
-    loop {
-        let ports = tokio_serial::available_ports()?;
-        if ports.iter().any(|port| { is_specified_port(&port, usb_id) }) {
-            tokio::time::sleep(Duration::from_millis(1)).await;
-            continue;
-        }
-        return Ok(());
-    }
-}
-
-pub fn is_specified_port(port_info: &SerialPortInfo, target_usb_id: UsbId) -> bool {
-    match &port_info.port_type {
-        SerialPortType::UsbPort(usb_info) => {
-            let usb_id = UsbId::from(usb_info);
-            usb_id == target_usb_id
-        },
-        _ => false
-    }
-}
-
-fn log_minor_err<E: Display>(res: Result<(), E>) {
-    if let Err(err) = res {
-        log::warn!("Upload stream warning: {}", err);
-    }
-}
-
-async fn touch_port(port_name: &str) -> Result<()> {
-    let mut port = tokio_serial::new(port_name, 1200).open()?;
-    port.write_data_terminal_ready(false)?;
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    drop(port);
-    Ok(())
-}
-
-pub async fn find_serial_port(usb_id: UsbId) -> Result<SerialPortInfo> {
-    let ports = tokio_serial::available_ports()?;
-    match ports.iter().find(|&port| { is_specified_port(port, usb_id) }) {
-        Some(port) => Ok(port.clone()),
-        None => {
-            log::warn!("port {usb_id:?} not found. All ports: {ports:?}");
-            Err(anyhow::anyhow!("port {usb_id:?} not found"))
-        }
-    }
-}
-
-async fn wait_for_port(id: &UsbId, timeout: Duration) -> Result<String> {
-    let start = Instant::now();
-    loop {
-        if let Ok(name) = find_port_async(id).await {
-            return Ok(name);
-        }
-        if start.elapsed() > timeout {
-            return Err(anyhow!("Timeout finding port {:?}", id));
-        }
-        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }

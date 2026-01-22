@@ -17,3 +17,5 @@ bossa = { git = "https://github.com/paul-fornage/BOSSA.git" }
 tokio-util = { version = "0.7.18", features = ["codec"] }
 futures = "0.3.31"
 cxx = "1.0.192"
+temp-dir = "0.1.16"
+

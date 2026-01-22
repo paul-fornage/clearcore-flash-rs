@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use chrono::{DateTime, Local};
 use tokio_serial::UsbPortInfo;
+use crate::ui::download_screen::DownloadState;
 use crate::ui::monitor_screen::MonitorState;
 use crate::ui::upload_screen::UploadState;
 
@@ -11,6 +12,7 @@ pub enum AppScreen {
     Main,
     Upload(UploadState),
     Monitor(MonitorState),
+    Download(DownloadState),
 }
 
 
