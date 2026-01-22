@@ -9,6 +9,7 @@ use iced_selection::text as selectable_text;
 use crate::app::App;
 use crate::types::{AppScreen, LogEntry, SerialConfig};
 use crate::Message;
+use crate::ui::common::logs_to_container;
 use crate::ui::toast::Toast;
 
 const CONST_SCROLLABLE_ID: widget::Id = widget::Id::new("serial monitor scrollable widget id");
@@ -121,43 +122,11 @@ pub fn monitor_screen(monitor_state: &MonitorState) -> Element<'static, Message>
 
     // Banner sits below header, above logs
     let banner = connection_banner(&monitor_state.connection_state);
-
-    let log_text = monitor_state.logs
-        .iter()
-        .map(|entry| format!("{entry}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-
-    let log_view = scrollable(
-        selectable_text(log_text)
-            .font(iced::Font::MONOSPACE)
-            .size(14)
-    )
-        .id(CONST_SCROLLABLE_ID.clone())
-        .height(Length::Fill)
-        .width(Length::Fill);
-
+    
 
     let is_connected = matches!(monitor_state.connection_state, MonitorConnectionState::Connected(_));
 
-    let log_view_container = container(log_view).style(move |theme: &Theme| {
-        let border_color = if is_connected {
-            theme.palette().primary.scale_alpha(0.5)
-        } else {
-            Color::from_rgb(0.8, 0.0, 0.0) // Red warning border
-        };
-
-        container::Style {
-            background: Some(theme.palette().background.into()),
-            border: Border{
-                width: 3.0,
-                color: border_color,
-                radius: Radius::new(10.0)
-            },
-            ..Default::default()
-        }
-    }).padding(10);
+    let log_view_container = logs_to_container(&monitor_state.logs, &CONST_SCROLLABLE_ID, !is_connected);
 
 
     let jump_btn = button("Jump to bottom")

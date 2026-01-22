@@ -1,18 +1,21 @@
 use std::path::PathBuf;
 use std::time::Duration;
 use iced::widget::{button, column, container, progress_bar, row, scrollable, text, Space};
-use iced::{Element, Length, Task, Theme};
+use iced::{widget, Element, Length, Task, Theme};
 use iced_selection::text as selectable_text;
 use crate::app::App;
 use crate::types::{AppScreen, LogEntry};
 use crate::{serial, Message};
 use crate::serial::upload::UploadEvent;
+use crate::ui::common::logs_to_container;
 use crate::ui::MainScreenMessage;
 
 #[derive(Debug, Clone)]
 pub enum UploadScreenMessage {
     Event(UploadEvent),
 }
+
+const UPLOAD_LOG_SCROLLABLE_ID: widget::Id = widget::Id::new("upload_log_scrollable_id");
 
 /// Upload state and progress
 #[derive(Debug, Clone, PartialEq)]
@@ -80,23 +83,7 @@ pub fn upload_screen(state: &UploadState) -> Element<'static, Message> {
         ),
     };
 
-    let log_text = state.logs
-        .iter()
-        .map(|entry| format!("{entry}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let log_view = scrollable(
-        container(
-            selectable_text(log_text)
-                .font(iced::Font::MONOSPACE)
-                .size(14)
-        )
-            .padding(10)
-            .width(Length::Fill)
-    )
-        .height(Length::Fill)
-        .width(Length::Fill);
+    let log_view_container = logs_to_container(&state.logs, &UPLOAD_LOG_SCROLLABLE_ID, !is_connected);
 
     let back_button = if matches!(progress, UploadProgress::Complete | UploadProgress::Failed(_)) {
         Some(

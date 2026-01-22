@@ -28,6 +28,7 @@ fn main() -> iced::Result {
         .filter(Some("sctk"), log::LevelFilter::Warn)
         .filter(Some("winit"), log::LevelFilter::Warn)
         .filter(Some("iced_graphics"), log::LevelFilter::Debug)
+        .filter(Some("calloop"), log::LevelFilter::Debug)
         .init();
 
 
