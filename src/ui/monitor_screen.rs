@@ -124,9 +124,15 @@ pub fn monitor_screen(monitor_state: &MonitorState) -> Element<'static, Message>
     let banner = connection_banner(&monitor_state.connection_state);
     
 
-    let is_connected = matches!(monitor_state.connection_state, MonitorConnectionState::Connected(_));
+    let color_override = match &monitor_state.connection_state {
+        MonitorConnectionState::Connected(_) => {
+            None
+        },
+        MonitorConnectionState::Connecting(_) => { Some(Color::from_rgb(0.5, 0.5, 0.5)) }
+        _ => { Some(Color::from_rgb(1.0, 0.0, 0.0)) }
+    };
 
-    let log_view_container = logs_to_container(&monitor_state.logs, &CONST_SCROLLABLE_ID, !is_connected);
+    let log_view_container = logs_to_container(&monitor_state.logs, &CONST_SCROLLABLE_ID, color_override);
 
 
     let jump_btn = button("Jump to bottom")

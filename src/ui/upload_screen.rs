@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 use iced::widget::{button, column, container, progress_bar, row, scrollable, text, Space};
-use iced::{widget, Element, Length, Task, Theme};
+use iced::{widget, Color, Element, Length, Task, Theme};
 use iced_selection::text as selectable_text;
 use crate::app::App;
 use crate::types::{AppScreen, LogEntry};
@@ -83,7 +83,12 @@ pub fn upload_screen(state: &UploadState) -> Element<'static, Message> {
         ),
     };
 
-    let log_view_container = logs_to_container(&state.logs, &UPLOAD_LOG_SCROLLABLE_ID, !is_connected);
+    let color_override = match state.progress {
+        UploadProgress::Complete => { Some(Color::from_rgb(0.0, 1.0, 0.0)) }
+        UploadProgress::Failed(_) => { Some(Color::from_rgb(1.0, 0.0, 0.0)) }
+        _ => None,
+    };
+    let log_view_container = logs_to_container(&state.logs, &UPLOAD_LOG_SCROLLABLE_ID, color_override);
 
     let back_button = if matches!(progress, UploadProgress::Complete | UploadProgress::Failed(_)) {
         Some(
@@ -95,7 +100,13 @@ pub fn upload_screen(state: &UploadState) -> Element<'static, Message> {
         None
     };
 
-    let mut content = column![title, Space::new().height(10), progress_text, Space::new().height(20), log_view]
+    let mut content = column![
+        title, 
+        Space::new().height(10), 
+        progress_text, 
+        Space::new().height(20), 
+        log_view_container
+    ]
         .spacing(10)
         .padding(20)
         .width(Length::Fill)
