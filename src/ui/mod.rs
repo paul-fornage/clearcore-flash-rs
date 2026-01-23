@@ -4,6 +4,7 @@ pub mod upload_screen;
 pub mod toast;
 mod common;
 pub mod download_screen;
+mod ansi_color;
 
 pub use toast::with_toast;
 pub use main_screen::{main_screen, MainScreenMessage};

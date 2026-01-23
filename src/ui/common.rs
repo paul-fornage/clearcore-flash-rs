@@ -6,6 +6,7 @@ use iced_selection::rich_text as selectable_rich_text;
 use iced_selection::span as selectable_span;
 use iced_selection::text::Span as SelectableSpan;
 use crate::app::Message;
+use crate::ui::ansi_color::{extract_wrapped_ansi_fg_color};
 
 pub fn logs_to_container(
     logs: &Vec<LogEntry>,
@@ -59,8 +60,19 @@ impl LogEntry {
                 vec![timestamp_span, preamble_span, content_span]
             }
             None => {
-                let content_span = selectable_span(format!("{}\n", self.message.message.trim()));
-                vec![timestamp_span, content_span]
+                let content = self.message.message.trim();
+                match extract_wrapped_ansi_fg_color(content){
+                    None => {
+                        let content_span = selectable_span(format!("{}\n", self.message.message.trim()));
+                        vec![timestamp_span, content_span]
+                    }
+                    Some((color, escaped_content)) => {
+                        let content_span = selectable_span(format!("{}\n", escaped_content))
+                            .color(color);
+                        vec![timestamp_span, content_span]
+                    }
+                }
+
             }
         }
     }
