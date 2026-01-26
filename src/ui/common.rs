@@ -1,4 +1,5 @@
-use iced::{widget, Border, Color, Length, Renderer, Theme};
+use cansi::v3::categorise_text;
+use iced::{widget, Border, Color, Font, Length, Renderer, Theme};
 use iced::border::Radius;
 use iced::widget::{container, scrollable, column, Container, text, Space, row, progress_bar};
 use crate::types::{LogEntry, LogMsgType};
@@ -6,7 +7,7 @@ use iced_selection::rich_text as selectable_rich_text;
 use iced_selection::span as selectable_span;
 use iced_selection::text::Span as SelectableSpan;
 use crate::app::Message;
-use crate::ui::ansi_color::{extract_wrapped_ansi_fg_color};
+use crate::ui::ansi_color::{ansi_color_to_span, extract_wrapped_ansi_fg_color};
 
 pub fn logs_to_container(
     logs: &Vec<LogEntry>,
@@ -60,19 +61,17 @@ impl LogEntry {
                 vec![timestamp_span, preamble_span, content_span]
             }
             None => {
-                let content = self.message.message.trim();
-                match extract_wrapped_ansi_fg_color(content){
-                    None => {
-                        let content_span = selectable_span(format!("{}\n", self.message.message.trim()));
-                        vec![timestamp_span, content_span]
-                    }
-                    Some((color, escaped_content)) => {
-                        let content_span = selectable_span(format!("{}\n", escaped_content))
-                            .color(color);
-                        vec![timestamp_span, content_span]
-                    }
-                }
+                let mut content = self.message.message.trim().to_string();
+                content.push('\n');
+                let result = categorise_text(&content);
 
+                let mut spans: Vec<text::Span<(), Font>> = Vec::with_capacity(result.len()+1);
+                spans.push(timestamp_span);
+                let mut content_spans = result.into_iter()
+                    .map(|c| ansi_color_to_span(c)).collect::<Vec<_>>();
+                spans.append(&mut content_spans);
+
+                spans
             }
         }
     }

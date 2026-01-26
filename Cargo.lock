@@ -468,6 +468,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cansi"
+version = "2.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4bdcae87153686017415ce77e48c53e6818a0a058f0e21b56640d1e944967ef8"
+
+[[package]]
 name = "cc"
 version = "1.2.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -542,6 +548,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bossa",
+ "cansi",
  "chrono",
  "cxx",
  "env_logger",
