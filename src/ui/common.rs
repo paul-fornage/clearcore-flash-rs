@@ -7,7 +7,7 @@ use iced_selection::rich_text as selectable_rich_text;
 use iced_selection::span as selectable_span;
 use iced_selection::text::Span as SelectableSpan;
 use crate::app::Message;
-use crate::ui::ansi_color::{ansi_color_to_span, extract_wrapped_ansi_fg_color};
+use crate::ui::ansi_color::{ansi_color_to_span};
 
 pub fn logs_to_container(
     logs: &Vec<LogEntry>,
