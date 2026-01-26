@@ -12,6 +12,8 @@ mod ui;
 
 use app::{App, Message};
 use iced::{application, window, Size};
+use ui::JETBRAINS_MONO;
+
 
 
 fn main() -> iced::Result {
@@ -35,6 +37,9 @@ fn main() -> iced::Result {
     log::info!("Starting ClearCore Flasher");
 
     application(App::new, App::update, App::view)
+        .font(include_bytes!("../assets/JetBrainsMono[wght].ttf"))
+        .font(include_bytes!("../assets/JetBrainsMono-Italic[wght].ttf"))
+        .default_font(JETBRAINS_MONO)
         .subscription(App::subscription)
         .theme(App::theme)
         .window(window::Settings {

@@ -1,8 +1,9 @@
 use cansi::v3::CategorisedSlice;
 use iced::{Color, Font};
+use crate::ui::JETBRAINS_MONO;
 use iced::font::{Style, Weight};
 use iced::widget::text;
-// TODO: [cansi](https://lib.rs/crates/cansi)
+
 use iced_selection::span as selectable_span;
 
 
@@ -56,7 +57,7 @@ pub fn ansi_color_to_span(source: CategorisedSlice) -> text::Span<'static, (), F
     selectable_span(source.text.to_string())
         .color_maybe(source.fg.map(cansi_color_to_iced_color))
         .background_maybe(source.bg.map(cansi_color_to_iced_color))
-        .font(ansi_font(Font::MONOSPACE, &source))
+        .font(ansi_font(JETBRAINS_MONO, &source))
         .strikethrough(source.strikethrough.unwrap_or(false))
         .underline(source.underline.unwrap_or(false))
 

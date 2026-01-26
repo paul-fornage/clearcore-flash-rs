@@ -1,5 +1,6 @@
 use cansi::v3::categorise_text;
 use iced::{widget, Border, Color, Font, Length, Renderer, Theme};
+use crate::ui::JETBRAINS_MONO;
 use iced::border::Radius;
 use iced::widget::{container, scrollable, column, Container, text, Space, row, progress_bar};
 use crate::types::{LogEntry, LogMsgType};
@@ -8,6 +9,27 @@ use iced_selection::span as selectable_span;
 use iced_selection::text::Span as SelectableSpan;
 use crate::app::Message;
 use crate::ui::ansi_color::{ansi_color_to_span};
+
+pub fn card<'a>(
+    content: impl Into<iced::Element<'a, Message, Theme, Renderer>>,
+) -> Container<'a, Message, Theme, Renderer> {
+    container(content)
+        .style(|theme: &Theme| {
+            let bg = theme.palette().background.scale_alpha(0.95);
+            let fg = theme.palette().primary.scale_alpha(0.05);
+            let mixed_bg = mix_colors(&bg, &fg);
+            container::Style {
+                background: Some(mixed_bg.into()),
+                border: Border {
+                    width: 0.0,
+                    color: mixed_bg,
+                    radius: Radius::new(10.0),
+                },
+                ..Default::default()
+            }
+        })
+        .padding(16)
+}
 
 pub fn logs_to_container(
     logs: &Vec<LogEntry>,
@@ -22,7 +44,7 @@ pub fn logs_to_container(
 
     let log_view = scrollable(
         selectable_rich_text(spans)
-            .font(iced::Font::MONOSPACE)
+            .font(JETBRAINS_MONO)
             .size(14),
     )
         .id(id.clone())
@@ -112,7 +134,18 @@ pub fn prog_bar(total: u32, current: u32, name: &str) -> Container<'static, Mess
         row![
             progress_bar(range, current_progress),
             text(format!("{percent:>6.2}% ({}/{} pages)", current, total))
-                .size(16).font(iced::Font::MONOSPACE)
+                .size(16).font(JETBRAINS_MONO)
         ]
     ])
+}
+
+
+/// adds wighted by alpha.
+pub fn mix_colors(color1: &Color, color2: &Color) -> Color {
+    let r = ((color1.r * color1.a) + (color2.r * color2.a)).clamp(0.0, 1.0);
+    let g = ((color1.g * color1.a) + (color2.g * color2.a)).clamp(0.0, 1.0);
+    let b = ((color1.b * color1.a) + (color2.b * color2.a)).clamp(0.0, 1.0);
+    let a = (color1.a + color2.a).clamp(0.0, 1.0);
+
+    Color::from_rgba(r, g, b, a)
 }

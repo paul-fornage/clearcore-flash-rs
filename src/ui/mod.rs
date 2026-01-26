@@ -5,6 +5,9 @@ pub mod toast;
 mod common;
 pub mod download_screen;
 mod ansi_color;
+use iced::Font;
+
+pub const JETBRAINS_MONO: Font = Font::with_name("JetBrains Mono");
 
 pub use toast::with_toast;
 pub use main_screen::{main_screen, MainScreenMessage};
