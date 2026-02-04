@@ -4,6 +4,7 @@ pub mod upload_screen;
 pub mod toast;
 mod common;
 pub mod download_screen;
+mod equal_height_row;
 mod ansi_color;
 use iced::Font;
 

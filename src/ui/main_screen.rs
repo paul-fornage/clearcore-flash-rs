@@ -1,4 +1,4 @@
-use iced::widget::{button, checkbox, column, container, row, text, Space};
+use iced::widget::{button, checkbox, column, container, text, Space};
 use iced::{Element, Length, Task, Theme};
 
 use crate::{serial, ui, Message};
@@ -8,6 +8,7 @@ use crate::ui::common::card;
 use crate::ui::monitor_screen::MonitorState;
 use crate::ui::upload_screen::{UploadProgress, UploadState};
 use crate::ui::download_screen::DownloadState;
+use crate::ui::equal_height_row::EqualHeightRow;
 
 #[derive(Debug, Clone)]
 pub enum MainScreenMessage {
@@ -20,7 +21,6 @@ pub enum MainScreenMessage {
 
 /// Render the main screen with upload and monitor buttons
 pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
-    let card_height = Length::Fixed(120.0);
     let title = text("ClearCore Flasher")
         .size(32)
         .style(|theme: &Theme| text::Style {
@@ -36,14 +36,13 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
                             .size(18)
                             .center()
                     )
-                        .width(Length::Fill)
-                        .height(Length::Fill)
-                        .center_x(Length::Fill)
-                        .center_y(Length::Fill)
+                    .width(Length::Fill)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Shrink)
                 )
                 .on_press(Message::MainScreen(MainScreenMessage::SelectFile))
                 .padding(16)
-                .width(Length::Fixed(240.0)),
+                .width(Length::Fill),
 
                 checkbox(monitor_after_upload)
                     .label("Monitor after upload")
@@ -51,7 +50,7 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
                         Message::MainScreen(MainScreenMessage::SetMonitorAfterUpload(enabled))
                     })
                     .size(16)
-                    .width(Length::Fixed(240.0)),
+                    .width(Length::Fill),
             ]
                 .spacing(12)
                 .align_x(iced::Alignment::Center),
@@ -60,7 +59,7 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
             .center_x(Length::Fill),
     )
         .width(Length::Fill)
-        .height(card_height);
+        .height(Length::Shrink);
 
     let download_button = card(
         container(
@@ -77,7 +76,7 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
             )
                 .on_press(Message::MainScreen(MainScreenMessage::StartDownload))
                 .padding(16)
-                .width(Length::Fixed(240.0))
+                .width(Length::Fill)
                 .height(Length::Fill),
         )
             .width(Length::Fill)
@@ -85,7 +84,7 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
             .center_x(Length::Fill),
     )
         .width(Length::Fill)
-        .height(card_height);
+        .height(Length::Shrink);
 
     let monitor_button = card(
         container(
@@ -102,7 +101,7 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
             )
                 .on_press(Message::MainScreen(MainScreenMessage::StartMonitoring))
                 .padding(16)
-                .width(Length::Fixed(240.0))
+                .width(Length::Fill)
                 .height(Length::Fill),
         )
             .width(Length::Fill)
@@ -110,30 +109,33 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
             .center_x(Length::Fill),
     )
         .width(Length::Fill)
-        .height(card_height);
+        .height(Length::Shrink);
+
+    let button_row = EqualHeightRow::new(vec![
+        upload_section.into(),
+        download_button.into(),
+        monitor_button.into(),
+    ])
+    .spacing(10)
+    .max_item_width(320.0);
 
     let content = column![
+        Space::new().height(Length::Fill),
         title,
-        Space::new().height(30),
-        row![
-            upload_section,
-            Space::new().width(10),
-            download_button,
-            Space::new().width(10),
-            monitor_button
-        ]
-        .align_y(iced::Alignment::Start)
+        Space::new().height(20),
+        button_row,
+        Space::new().height(Length::Fill),
     ]
         .spacing(10)
-        .padding(40)
+        .padding([20, 40])
         .width(Length::Fill)
+        .height(Length::Fill)
         .align_x(iced::Alignment::Center);
 
     container(content)
         .width(Length::Fill)
         .height(Length::Fill)
         .center_x(Length::Fill)
-        .center_y(Length::Fill)
         .into()
 }
 
