@@ -36,6 +36,12 @@ fn main() -> iced::Result {
 
     log::info!("Starting ClearCore Flasher");
 
+    let icon = window::icon::from_file_data(
+        include_bytes!("../assets/icon.png"),
+        None,
+    )
+    .ok();
+
     application(App::new, App::update, App::view)
         .font(include_bytes!("../assets/JetBrainsMono[wght].ttf"))
         .font(include_bytes!("../assets/JetBrainsMono-Italic[wght].ttf"))
@@ -46,6 +52,7 @@ fn main() -> iced::Result {
         .window(window::Settings {
             size: Size::new(800.0, 600.0),
             resizable: true,
+            icon,
             ..Default::default()
         })
         .run()
