@@ -37,12 +37,14 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
                             .center()
                     )
                     .width(Length::Fill)
+                    .height(Length::Fill)
                     .center_x(Length::Fill)
-                    .center_y(Length::Shrink)
+                    .center_y(Length::Fill)
                 )
                 .on_press(Message::MainScreen(MainScreenMessage::SelectFile))
                 .padding(16)
-                .width(Length::Fill),
+                .width(Length::Fill)
+                .height(Length::Fill),
 
                 checkbox(monitor_after_upload)
                     .label("Monitor after upload")
@@ -56,10 +58,11 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
                 .align_x(iced::Alignment::Center),
         )
             .width(Length::Fill)
+            .height(Length::Fill)
             .center_x(Length::Fill),
     )
         .width(Length::Fill)
-        .height(Length::Shrink);
+        .height(Length::Fill);
 
     let download_button = card(
         container(
@@ -84,7 +87,7 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
             .center_x(Length::Fill),
     )
         .width(Length::Fill)
-        .height(Length::Shrink);
+        .height(Length::Fill);
 
     let monitor_button = card(
         container(
@@ -109,7 +112,7 @@ pub fn main_screen(monitor_after_upload: bool) -> Element<'static, Message> {
             .center_x(Length::Fill),
     )
         .width(Length::Fill)
-        .height(Length::Shrink);
+        .height(Length::Fill);
 
     let button_row = EqualHeightRow::new(vec![
         upload_section.into(),

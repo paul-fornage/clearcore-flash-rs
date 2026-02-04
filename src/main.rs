@@ -42,8 +42,9 @@ fn main() -> iced::Result {
         .default_font(JETBRAINS_MONO)
         .subscription(App::subscription)
         .theme(App::theme)
+        .title("ClearCore Flasher")
         .window(window::Settings {
-            size: Size::new(600.0, 500.0),
+            size: Size::new(800.0, 600.0),
             resizable: true,
             ..Default::default()
         })
