@@ -1,9 +1,7 @@
-use std::fmt::Display;
-use iced::widget::{button, checkbox, column, container, row, scrollable, text, Space, self, operation, stack};
+use iced::widget::{button, column, container, row, text, text_input, self, operation, stack};
 use iced::{clipboard, Background, Border, Color, Element, Length, Task, Theme};
 use iced::border::Radius;
 use iced::widget::scrollable::RelativeOffset;
-use iced_selection::text as selectable_text;
 
 
 use crate::app::App;
@@ -22,6 +20,9 @@ pub enum MonitorScreenMessage {
     CopyLogs,
     SaveLogs,
     SaveLogsFinished(Result<bool, String>),
+    SerialReady(tokio::sync::mpsc::Sender<String>),
+    SendInputChanged(String),
+    SendMessage,
 }
 
 #[derive(Debug)]
@@ -29,6 +30,8 @@ pub struct MonitorState{
     pub serial_config: SerialConfig,
     pub connection_state: MonitorConnectionState,
     pub logs: Vec<LogEntry>,
+    pub send_input: String,
+    pub serial_sender: Option<tokio::sync::mpsc::Sender<String>>,
 }
 
 impl Default for MonitorState {
@@ -37,6 +40,8 @@ impl Default for MonitorState {
             serial_config: SerialConfig::default(),
             connection_state: MonitorConnectionState::Disconnected, // Starts disconnected until entered
             logs: Vec::new(),
+            send_input: String::new(),
+            serial_sender: None,
         }
     }
 }
@@ -155,7 +160,31 @@ pub fn monitor_screen(monitor_state: &MonitorState) -> Element<'static, Message>
         .spacing(20)
         .align_y(iced::Alignment::Center);
 
-    let content = column![header, banner, log_view_container, bottom_controls]
+    let is_connected = matches!(monitor_state.connection_state, MonitorConnectionState::Connected(_))
+        && monitor_state.serial_sender.is_some();
+
+    let send_input = text_input("Type a message to send...", &monitor_state.send_input)
+        .on_input(|s| Message::MonitorScreen(MonitorScreenMessage::SendInputChanged(s)))
+        .padding(8);
+    let send_input = if is_connected {
+        send_input.on_submit(Message::MonitorScreen(MonitorScreenMessage::SendMessage))
+    } else {
+        send_input
+    };
+
+    let send_btn = button("Send")
+        .padding(8);
+    let send_btn = if is_connected {
+        send_btn.on_press(Message::MonitorScreen(MonitorScreenMessage::SendMessage))
+    } else {
+        send_btn
+    };
+
+    let send_row = row![send_input, send_btn]
+        .spacing(8)
+        .align_y(iced::Alignment::Center);
+
+    let content = column![header, banner, log_view_container, bottom_controls, send_row]
         .spacing(10)
         .padding(20)
         .width(Length::Fill)
@@ -230,6 +259,31 @@ impl App{
                     }
                     MonitorScreenMessage::SaveLogsFinished(Err(err)) => {
                         self.toast = Some(Toast::error(format!("Failed to save serial log: {}", err)));
+                    }
+                    MonitorScreenMessage::SerialReady(sender) => {
+                        monitor_state.serial_sender = Some(sender);
+                    }
+                    MonitorScreenMessage::SendInputChanged(s) => {
+                        monitor_state.send_input = s;
+                    }
+                    MonitorScreenMessage::SendMessage => {
+                        let text = std::mem::take(&mut monitor_state.send_input);
+                        if !text.is_empty() {
+                            if let Some(sender) = &monitor_state.serial_sender {
+                                match sender.try_send(text.clone()) {
+                                    Ok(_) => {
+                                        monitor_state.logs.push(LogEntry::new_now(
+                                            LogMsg::new_info(format!("> {text}"))
+                                        ));
+                                        return operation::snap_to(CONST_SCROLLABLE_ID, RelativeOffset::END);
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to send serial message: {e:?}");
+                                        self.toast = Some(Toast::error("Failed to send message"));
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

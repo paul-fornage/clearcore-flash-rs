@@ -1,23 +1,18 @@
-use std::fmt::Display;
-use anyhow::Result;
 use iced::futures::{SinkExt, Stream};
 use iced::{stream, Subscription};
 use std::time::Duration;
-use futures::channel::mpsc::SendError;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_serial::{SerialPort, SerialPortBuilderExt};
 use iced::futures::channel::mpsc;
-use tokio_util::codec::{Decoder, Encoder};
-use futures::stream::StreamExt;
-use tokio_util::bytes::BytesMut;
 use crate::serial::{find_port_async, log_minor_err};
-use crate::types::{LogMsg, LogMsgType, SerialConfig, UsbId};
+use crate::types::{LogMsg, SerialConfig, UsbId};
 use crate::ui::monitor_screen::MonitorConnectionState;
 
 #[derive(Debug, Clone)]
 pub enum SerialMonitorEvent {
     StateChange(MonitorConnectionState),
     Data(LogMsg),
+    Ready(tokio::sync::mpsc::Sender<String>),
 }
 
 
@@ -30,7 +25,7 @@ pub fn listen() -> Subscription<SerialMonitorEvent> {
 }
 
 /// The actual stream logic. This is called ONCE when the subscription starts.
-fn connect_and_listen() -> impl Stream<Item =SerialMonitorEvent> {
+fn connect_and_listen() -> impl Stream<Item = SerialMonitorEvent> {
     stream::channel(100, |mut output: mpsc::Sender<SerialMonitorEvent>| async move {
         log::info!("Starting serial connection monitor");
         let config = SerialConfig::SERIAL_MONITOR;
@@ -45,9 +40,13 @@ fn connect_and_listen() -> impl Stream<Item =SerialMonitorEvent> {
 
         state_change(&mut output, MonitorConnectionState::Searching).await;
 
-
         // This loop handles the connection lifecycle (Auto-reconnect)
         loop {
+            // Create a fresh input channel for each connection attempt.
+            // The sender is forwarded to the UI so it can write to the serial port.
+            let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel::<String>(32);
+            log_minor_err(output.send(SerialMonitorEvent::Ready(cmd_tx)).await);
+
             // 1. Find the port asynchronously (retries internally if needed, or we retry here)
             let port_info = match find_port_async(config.usb_id).await {
                 Ok(info) => info,
@@ -81,7 +80,6 @@ fn connect_and_listen() -> impl Stream<Item =SerialMonitorEvent> {
             state_change(&mut output, MonitorConnectionState::Connecting(port_name.clone())).await;
 
             // 3. Attempt to open the port
-            // We use tokio_serial directly (non-blocking)
             let port_result = tokio_serial::new(&port_name, config.baud_rate)
                 .timeout(Duration::from_millis(2000))
                 .open_native_async();
@@ -99,13 +97,40 @@ fn connect_and_listen() -> impl Stream<Item =SerialMonitorEvent> {
                     state_change(&mut output,
                                  MonitorConnectionState::Connected(port_name.clone())).await;
 
-                    // 5. Read Loop - We stay here as long as the connection is good
-                    let mut reader = BufReader::new(port);
+                    // 5. Split port into read/write halves and enter the read/write loop
+                    let (read_half, mut write_half) = tokio::io::split(port);
+                    let mut reader = BufReader::new(read_half);
                     let mut line = String::new();
+                    // Use Option so we can fall back to read-only if the sender is dropped
+                    let mut cmd_rx_opt = Some(cmd_rx);
 
-                    loop {
+                    'read_loop: loop {
                         line.clear();
-                        match reader.read_line(&mut line).await {
+
+                        let read_result = if let Some(ref mut rx) = cmd_rx_opt {
+                            tokio::select! {
+                                result = reader.read_line(&mut line) => result,
+                                cmd = rx.recv() => {
+                                    match cmd {
+                                        Some(text) => {
+                                            let bytes = format!("{text}\n").into_bytes();
+                                            if let Err(e) = write_half.write_all(&bytes).await {
+                                                log::error!("Failed to write to serial port: {e:?}");
+                                            }
+                                        }
+                                        None => {
+                                            // Sender was dropped; switch to read-only mode
+                                            cmd_rx_opt = None;
+                                        }
+                                    }
+                                    continue 'read_loop;
+                                }
+                            }
+                        } else {
+                            reader.read_line(&mut line).await
+                        };
+
+                        match read_result {
                             Ok(0) => {
                                 log::warn!("EOF: Device disconnected");
                                 state_change(&mut output, MonitorConnectionState::Error(

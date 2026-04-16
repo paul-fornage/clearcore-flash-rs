@@ -96,6 +96,9 @@ impl App {
                     serial::monitor::SerialMonitorEvent::StateChange(state) => {
                         Message::MonitorScreen(ui::MonitorScreenMessage::ConnectionStateChanged(state))
                     }
+                    serial::monitor::SerialMonitorEvent::Ready(sender) => {
+                        Message::MonitorScreen(ui::MonitorScreenMessage::SerialReady(sender))
+                    }
                 })
             }
             AppScreen::Upload(state) => {
@@ -128,7 +131,7 @@ impl App {
         }
     }
 
-    pub fn view(&self) -> Element<Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let view = match &self.screen {
             AppScreen::Main => ui::main_screen(self.monitor_after_upload),
             AppScreen::Upload(state) => ui::upload_screen(state),

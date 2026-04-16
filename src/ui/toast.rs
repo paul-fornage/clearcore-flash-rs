@@ -1,9 +1,7 @@
 
-use iced::widget::{button, checkbox, column, container, row, scrollable, stack, text, Space};
+use iced::widget::{button, container, row, stack, text, Space};
 use iced::{alignment, Border, Color, Element, Length, Theme};
-use iced_selection::text as selectable_text;
 
-use crate::types::{LogEntry};
 use crate::Message;
 
 /// Toast notification

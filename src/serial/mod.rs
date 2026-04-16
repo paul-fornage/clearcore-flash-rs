@@ -1,5 +1,5 @@
 use futures::SinkExt;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
 use std::time::Duration;
 use crate::types::{LogMsg, LogMsgType, UsbId};
 use anyhow::{Context, Result};

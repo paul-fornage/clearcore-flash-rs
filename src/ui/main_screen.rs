@@ -1,9 +1,9 @@
 use iced::widget::{button, checkbox, column, container, text, Space};
 use iced::{Element, Length, Task, Theme};
 
-use crate::{serial, ui, Message};
+use crate::Message;
 use crate::app::App;
-use crate::types::{AppScreen, LogEntry, SerialConfig};
+use crate::types::AppScreen;
 use crate::ui::common::card;
 use crate::ui::monitor_screen::MonitorState;
 use crate::ui::upload_screen::{UploadProgress, UploadState};

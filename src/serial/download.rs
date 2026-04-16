@@ -1,18 +1,15 @@
-use crate::serial::{get_or_touch_to_bootloader, log_minor_err, touch_to_bootloader, wait_for_serial_port};
-use std::ffi::{CStr, CString};
+use crate::serial::{get_or_touch_to_bootloader, log_minor_err, wait_for_serial_port};
 use std::fmt::{Display, Formatter};
-use std::os::raw::c_char;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
-use anyhow::{anyhow, Context, Result};
+use std::time::Duration;
+use anyhow::{Context, Result};
 use iced::futures::{SinkExt, Stream};
 use iced::{stream, Subscription};
 use iced::futures::channel::mpsc;
-use tokio_serial::{SerialPort, SerialPortBuilderExt, SerialPortInfo, SerialPortType};
-use cxx::{let_cxx_string, type_id, CxxString, ExternType};
-use crate::types::{LogMsg, LogMsgType, SerialConfig, UsbId};
-use crate::serial::{find_port_async, TEKNIC_BOOTLOADER_OFFSET_ADDRESS};
+use cxx::{let_cxx_string, CxxString};
+use crate::types::{LogMsg, LogMsgType, UsbId};
+use crate::serial::TEKNIC_BOOTLOADER_OFFSET_ADDRESS;
 use std::str;
 
 use bossa;
