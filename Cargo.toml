@@ -17,5 +17,5 @@ bossa = { git = "https://github.com/paul-fornage/BOSSA.git" }
 tokio-util = { version = "0.7.18", features = ["codec"] }
 futures = "0.3.31"
 cxx = "1.0.192"
-cansi = "2.2.1"
+cansi = { git = "https://github.com/paul-fornage/cansi.git", rev = "b24dfe3" }
 

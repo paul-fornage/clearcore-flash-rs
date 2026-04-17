@@ -549,8 +549,10 @@ dependencies = [
 [[package]]
 name = "cansi"
 version = "2.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bdcae87153686017415ce77e48c53e6818a0a058f0e21b56640d1e944967ef8"
+source = "git+https://github.com/paul-fornage/cansi.git?rev=b24dfe3#b24dfe3c5bcf53657b8e147bb665ce60074fabbe"
+dependencies = [
+ "thiserror 2.0.18",
+]
 
 [[package]]
 name = "cc"

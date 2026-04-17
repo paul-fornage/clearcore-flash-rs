@@ -1,4 +1,4 @@
-use cansi::v3::CategorisedSlice;
+use cansi::CategorisedSlice;
 use iced::{Font};
 use crate::ui::JETBRAINS_MONO;
 use iced::font::{Style, Weight};
@@ -15,9 +15,9 @@ fn ansi_font(base: Font, source: &CategorisedSlice) -> Font {
 
     if let Some(intensity) = source.intensity {
         font.weight = match intensity {
-            cansi::v3::Intensity::Bold => Weight::Bold,
-            cansi::v3::Intensity::Faint => Weight::Light,
-            cansi::v3::Intensity::Normal => Weight::Normal,
+            cansi::Intensity::Bold => Weight::Bold,
+            cansi::Intensity::Faint => Weight::Light,
+            cansi::Intensity::Normal => Weight::Normal,
         };
     }
 
@@ -40,25 +40,25 @@ pub fn ansi_color_to_span(source: CategorisedSlice) -> text::Span<'static, (), F
 
 }
 
-pub fn cansi_color_to_iced_color(color: cansi::v3::Color) -> iced::Color {
+pub fn cansi_color_to_iced_color(color: cansi::Color) -> iced::Color {
     match color {
-        cansi::v3::Color::Black => str_color_to_iced_color("#000000"),
-        cansi::v3::Color::Red => str_color_to_iced_color("#a03030"),
-        cansi::v3::Color::Green => str_color_to_iced_color("#00a000"),
-        cansi::v3::Color::Yellow => str_color_to_iced_color("#a09030"),
-        cansi::v3::Color::Blue => str_color_to_iced_color("#2050b0"),
-        cansi::v3::Color::Magenta => str_color_to_iced_color("#903090"),
-        cansi::v3::Color::Cyan => str_color_to_iced_color("#309090"),
-        cansi::v3::Color::White => str_color_to_iced_color("#a0a0a0"),
+        cansi::Color::Black => str_color_to_iced_color("#000000"),
+        cansi::Color::Red => str_color_to_iced_color("#a03030"),
+        cansi::Color::Green => str_color_to_iced_color("#00a000"),
+        cansi::Color::Yellow => str_color_to_iced_color("#a09030"),
+        cansi::Color::Blue => str_color_to_iced_color("#2050b0"),
+        cansi::Color::Magenta => str_color_to_iced_color("#903090"),
+        cansi::Color::Cyan => str_color_to_iced_color("#309090"),
+        cansi::Color::White => str_color_to_iced_color("#a0a0a0"),
 
-        cansi::v3::Color::BrightBlack => str_color_to_iced_color("#505050"),
-        cansi::v3::Color::BrightRed => str_color_to_iced_color("#f03030"),
-        cansi::v3::Color::BrightGreen => str_color_to_iced_color("#00f000"),
-        cansi::v3::Color::BrightYellow => str_color_to_iced_color("#f0c030"),
-        cansi::v3::Color::BrightBlue => str_color_to_iced_color("#2050f0"),
-        cansi::v3::Color::BrightMagenta => str_color_to_iced_color("#f030f0"),
-        cansi::v3::Color::BrightCyan => str_color_to_iced_color("#30f0f0"),
-        cansi::v3::Color::BrightWhite => str_color_to_iced_color("#f0f0f0"),
+        cansi::Color::BrightBlack => str_color_to_iced_color("#505050"),
+        cansi::Color::BrightRed => str_color_to_iced_color("#f03030"),
+        cansi::Color::BrightGreen => str_color_to_iced_color("#00f000"),
+        cansi::Color::BrightYellow => str_color_to_iced_color("#f0c030"),
+        cansi::Color::BrightBlue => str_color_to_iced_color("#2050f0"),
+        cansi::Color::BrightMagenta => str_color_to_iced_color("#f030f0"),
+        cansi::Color::BrightCyan => str_color_to_iced_color("#30f0f0"),
+        cansi::Color::BrightWhite => str_color_to_iced_color("#f0f0f0"),
     }
 }
 
@@ -99,7 +99,7 @@ pub const fn str_color_to_iced_color(s: &str) -> iced::Color {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cansi::v3::categorise_text;
+    use cansi::categorise_text;
     use iced::font::{Style, Weight};
 
     const RESET: &str = "\x1b[0m";
@@ -115,9 +115,9 @@ mod tests {
         categorise_text(input).into_iter().map(ansi_color_to_span).collect()
     }
 
-    fn iced_green() -> iced::Color { cansi_color_to_iced_color(cansi::v3::Color::Green) }
-    fn iced_cyan() -> iced::Color { cansi_color_to_iced_color(cansi::v3::Color::Cyan) }
-    fn iced_magenta() -> iced::Color { cansi_color_to_iced_color(cansi::v3::Color::Magenta) }
+    fn iced_green() -> iced::Color { cansi_color_to_iced_color(cansi::Color::Green) }
+    fn iced_cyan() -> iced::Color { cansi_color_to_iced_color(cansi::Color::Cyan) }
+    fn iced_magenta() -> iced::Color { cansi_color_to_iced_color(cansi::Color::Magenta) }
 
     /// ANSI_CYAN, ANSI_BOLD, "[echo]", ANSI_RESET, " ",
     /// ANSI_UNDERLINE, ANSI_GREEN, "<<<", ANSI_ITALIC, command,

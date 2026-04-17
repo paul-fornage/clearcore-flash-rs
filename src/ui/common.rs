@@ -1,4 +1,4 @@
-use cansi::v3::categorise_text;
+use cansi::categorise_text;
 use iced::{widget, Border, Color, Font, Length, Renderer, Theme};
 use crate::ui::JETBRAINS_MONO;
 use iced::border::Radius;
