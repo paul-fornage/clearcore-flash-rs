@@ -23,3 +23,8 @@ It was also a batch file that relied on many different executables, kind of hack
 should not be declaring a struct and then writing to it using a mut ref parameter in a function the next line to initialize it.
 - [ ] Option to enable/disable displaying timestamps.
 - [ ] add CLI capability. 
+
+
+### Raspberry pi
+At the time of writing, RPI OS seems to have some issues with their Vulkan driver. 
+Works if you run with `WGPU_BACKEND=gl ./clearcore-flash-rs`
