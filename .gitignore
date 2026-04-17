@@ -3,3 +3,5 @@ reference
 .idea
 *.bin
 .aiassistant
+release-build-staging
+build.sh
