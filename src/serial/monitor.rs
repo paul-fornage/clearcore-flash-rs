@@ -12,7 +12,7 @@ use crate::ui::monitor_screen::MonitorConnectionState;
 pub enum SerialMonitorEvent {
     StateChange(MonitorConnectionState),
     Data(LogMsg),
-    Ready(tokio::sync::mpsc::Sender<String>),
+    Ready(tokio::sync::mpsc::Sender<String>), // This is pretty bad. Don't like this approach
 }
 
 
