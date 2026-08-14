@@ -1,5 +1,7 @@
 # ⚠️MIGRATED TO GITLAB. BLAME MICROSLOP ⚠️
 
+[Here on gitlab!](https://gitlab.com/mit-usa/clearcore-flash-rs)
+
 # The real stand alone clearcore flasher
 
 Replaces the hacky [CLI version](https://github.com/paul-fornage/Standalone-ClearCore-BIN-Flasher). 
