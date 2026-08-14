@@ -1,4 +1,4 @@
-
+# ⚠️MIGRATED TO GITLAB. BLAME MICROSLOP ⚠️
 
 # The real stand alone clearcore flasher
 
